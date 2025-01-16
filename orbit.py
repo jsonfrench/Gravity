@@ -2,6 +2,7 @@
 
 import numpy as np
 from scipy.integrate import odeint
+from scipy.fft import fft
 import matplotlib.pyplot as plt
 
 
@@ -20,7 +21,7 @@ y2 = 0
 vx1 = 0        
 vy1 = 0        
 vx2 = 0        
-vy2 = np.sqrt(G*m1) * 1.3
+vy2 = np.sqrt(G*m1) * 1
 
 def dSdt(IVP, t, G, M): 
     
@@ -33,13 +34,18 @@ def dSdt(IVP, t, G, M):
 
     return [vx, vy, ax, ay]
 
-t = np.linspace(0, 10000, 100000)
+t = np.linspace(0, 100000, 1000000)
 
 solution = odeint(dSdt, [x2, y2, vx2, vy2], t, args=(G, m1))
 
-x=solution[:,0]
-y=solution[:,1]
+x = solution[:, 0]     # select all x values
+y = solution[:, 1]     # select all y values
+
+plt.figure(figsize=(8,8))
 
 plt.plot(x,y)
-plt.axis("equal")
+plt.show()
+
+forier = fft(x)
+plt.plot(t,forier)
 plt.show()
