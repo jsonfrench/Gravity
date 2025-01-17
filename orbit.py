@@ -21,7 +21,11 @@ y2 = 0
 vx1 = 0        
 vy1 = 0        
 vx2 = 0        
-vy2 = np.sqrt(G*m1) * 1
+# vy2 = np.sqrt(G*m1) * 0.9         # eliptical
+vy2 = np.sqrt(G*m1) * 1         # circular
+# vy2 = np.sqrt(G*m1) * 1.1         # eliptical
+# vy2 = np.sqrt(G*m1) * np.sqrt(2)    # parabolic 
+# vy2 = np.sqrt(G*m1) * np.sqrt(2) * 1.1   # hyperbolic
 
 def dSdt(IVP, t, G, M): 
     
@@ -40,8 +44,6 @@ solution = odeint(dSdt, [x2, y2, vx2, vy2], t, args=(G, m1))
 
 x = solution[:, 0]     # select all x values
 y = solution[:, 1]     # select all y values
-
-plt.figure(figsize=(8,8))
 
 plt.plot(x,y)
 plt.show()
