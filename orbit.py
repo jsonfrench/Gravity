@@ -2,91 +2,72 @@
 
 import numpy as np
 from scipy.integrate import odeint
-import scipy as sci
+from scipy.fft import fft
+from scipy.fft import rfft
 import matplotlib.pyplot as plt
-import statistics as stat
 
 
-
-# Constants
-G = 1
+# Constatnts
+G = 6.674e-11
 
 # Parameters
-m0 = 1000000     # Large mass (sun)
+m0 = 100000     # Large mass (sun)
 m1 = 1          # small mass (planet)
 m2 = 1
 
 # Initial Values
 x0 = 0         
 y0 = 0         
-x1 = 1        
-y1 = 0      
-x2 = 2
-y2 = 0 
+x1 = 1         
+y1 = 0         
+x2 = 2         
+y2 = 0         
 vx0 = 0        
 vy0 = 0        
 vx1 = 0        
-#vy1 = np.sqrt(G*m1) * 0.9         # eliptical
-#vy1 = np.sqrt(G*m1) * 1         # circular
-vy1 = np.sqrt(G*m1) * 1        # eliptical
-#vy1 = np.sqrt(G*m1) * np.sqrt(2)    # parabolic 
-# vy1 = np.sqrt(G*m1) * np.sqrt(2) * 1.1   # hyperbolic
-vx2 = 0
-vy2 = np.sqrt(G*m1) * 1.1         # eliptical
+# vy1 = np.sqrt(G*m0) * 0.9         # eliptical
+vy1 = np.sqrt(G*m0) * 1         # circular
+# vy1 = np.sqrt(G*m0) * 1.1         # eliptical
+# vy1 = np.sqrt(G*m0) * np.sqrt(2)    # parabolic 
+# vy1 = np.sqrt(G*m0) * np.sqrt(2) * 1.1   # hyperbolic
+vx2 = 0        
+vy2 = vy1
 
 
-def dSdt(IVP, t, G, M): 
+t = np.linspace(0, 100000, 1000000)
+
+def dSdt(IVP, t, G, M, m1, m2): 
     
-    x, y, vx, vy = IVP
+    x1, y1, vx1, vy1, x2, y2, vx2, vy2 = IVP
 
-    r = np.sqrt(x**2 + y**2)
+    r1 = np.sqrt(x1**2 + y1**2)
+    r2 = np.sqrt(x2**2 + y2**2)
+    d = np.sqrt((x1-x2)**2 + (y1-y2)**2)
 
-    ax = -G * M * x / r**3
-    ay = -G * M * y / r**3
 
-    return [vx, vy, ax, ay]
 
-t_max = 10
-samples_per_time = 50000
+    ax1 = (-G * M * x1 / r1**3) + (-G * M * (x2-x1) / d**3)
+    ay1 = (-G * M * y1 / r1**3) + (-G * M * (y2-y1) / d**3)
+    ax2 = (-G * M * x2 / r2**3) + (-G * M * (x2-x1) / d**3)
+    ay2 = (-G * M * y2 / r2**3) + (-G * M * (y2-y1) / d**3)
 
-t = np.linspace(0, t_max, samples_per_time*t_max)
+    r1 = np.sqrt(x1**2 + y1**2)
+    ax1 = -G * M * x1 / r1**3
+    ay1 = -G * M * y1 / r1**3
 
-solution = odeint(dSdt, [x2, y2, vx2, vy2], t, args=(G, m1))
+    return [vx1, vy1, ax1, ay1, vx2, vy2, ax2, ay2]
 
-x = solution[:, 0]     # select all x values
-y = solution[:, 1]     # select all y values
+solution = odeint(dSdt, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
 
-c = np.cos(200*2*np.pi*t)
+x1 = solution[:, 0]     # select all x values
+y1 = solution[:, 1]     # select all y values
+x2 = solution[:, 4]     # select all x values
+y2 = solution[:, 5]     # select all y values
 
-plt.figure(figsize=(12,6))
+plt.plot(x1,y1)
+plt.plot(x2,y2)
+plt.show()
 
-plt.subplot(1,2,1)
-plt.plot(x,y)
-plt.xlabel('x')
-plt.ylabel('y')
-plt.title('orbital position')
-
-array = np.zeros(len(x))
-for i in range(len(x)-1):
-    array[i] = (t[i+1]-t[i])*(x[i+1]+x[i])
-
-x_avg = (1/2*t_max)*np.sum(array)
-
-x = x - x_avg
-x_hat = np.fft.rfft(x)
-freq = np.fft.rfftfreq(len(t), 1/samples_per_time)
-
-F_upper = 10000
-height = 200
-
-peaks, properties = sci.signal.find_peaks(np.abs(x_hat[:F_upper]), height = height)
-
-plt.subplot(1,2,2)
-plt.plot(freq[:F_upper],np.abs(x_hat[:F_upper]))
-plt.scatter(freq[peaks], np.abs(x_hat[peaks]), c='orange')
-plt.text(x=250, y=100000, s=f'peak freq = {freq[peaks]}')
-plt.xlabel('frequency')
-plt.ylabel('magnitude')
-plt.title('orbital x coordinate in frequency domain')
-plt.tight_layout()
+fourier = fft(x1)
+plt.plot(t,fourier)
 plt.show()
