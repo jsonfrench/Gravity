@@ -63,7 +63,7 @@ def plot_fourier(solutions):
         plt.plot(freq,np.abs(fourier))
     plt.show()
 
-def plot_fourier_difference(solution_1, solution_2):
+def plot_fourier_difference(solution_1, solution_2, title):
 
     solution_1_values = solution_1[:, 0]
     solution_2_values = solution_2[:, 0]
@@ -79,9 +79,14 @@ def plot_fourier_difference(solution_1, solution_2):
     # plt.plot(truncated_range,np.abs(solution_1_fourier - solution_2_fourier), color="red")
     plt.plot(truncated_range,(solution_1_fourier - solution_2_fourier)[:max_frequency], color="red", label="real difference")
     plt.plot(truncated_range,(solution_1_fourier - solution_2_fourier)[:max_frequency] * -1j, color="black", label="imaginary difference")
-    plt.title("Difference in theoretical and observed")
+    # plt.title("Difference in theoretical and observed")
+    plt.title(title)
     plt.legend()
     # plt.show()
+
+labels = [
+    "x1", "y1", "vx1", "vy1", "x2", "y2", "vx2", "vy2", "M", "m1", "m2"
+]
 
 examples = [
     # [1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01), 100000, 1, 1],   # coil orbit
@@ -103,6 +108,12 @@ for i in range(len(examples)):
     two_body_solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
     one_body_solution = odeint(one_body, [x1, y1, vx1, vy1], t, args=(G, m0))
     # plot_two_body_orbit(two_body_solution)
-    plot_fourier_difference(one_body_solution, two_body_solution) 
+    if i == 0:
+        title = "Base orbit"
+    else:
+        title = ""
+        for j in range(len(examples[i])):
+            title += "" if examples[i][j] == examples[0][j] else f"{labels[j]}={examples[i][j]} "     # add parameter to title if it doesnt match base state
+    plot_fourier_difference(one_body_solution, two_body_solution, title)
 plt.tight_layout()
 plt.show()
