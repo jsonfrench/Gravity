@@ -70,7 +70,7 @@ def plot_fourier_difference(solution_1, solution_2):
 
     solution_1_fourier = np.fft.rfft(solution_1_values)
     solution_2_fourier = np.fft.rfft(solution_2_values)
-
+    
     max_frequency = int(0.02 * time_steps / samples_per_time)
     truncated_range = freq[:max_frequency]
 
