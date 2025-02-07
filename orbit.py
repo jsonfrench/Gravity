@@ -12,8 +12,8 @@ G = 6.674e-11
 
 # Simulation setup
 samples_per_time = 10
-time_steps = 100000
-t = np.linspace(0, time_steps, time_steps*samples_per_time)
+time_steps = 100000 * 1
+t = np.linspace(0, time_steps, time_steps*samples_per_time) 
 freq = np.fft.rfftfreq(len(t), 1/samples_per_time) * 10
 
 def one_body(IVP, t, G, M): 
@@ -70,127 +70,39 @@ def plot_fourier_difference(solution_1, solution_2):
 
     solution_1_fourier = np.fft.rfft(solution_1_values)
     solution_2_fourier = np.fft.rfft(solution_2_values)
+    
+    max_frequency = int(0.02 * time_steps / samples_per_time)
+    truncated_range = freq[:max_frequency]
 
-    plt.plot(freq,np.abs(solution_1_fourier), color="blue")
-    plt.plot(freq,np.abs(solution_2_fourier), color="orange")
-    # plt.plot(freq,np.abs(solution_1_fourier - solution_2_fourier), color="red")
-    plt.plot(freq,(solution_1_fourier - solution_2_fourier), color="red")
-    plt.show()
+    plt.plot(truncated_range,np.abs(solution_1_fourier)[:max_frequency], color="blue", label="theoretical orbit")
+    plt.plot(truncated_range,np.abs(solution_2_fourier)[:max_frequency], color="orange", label="actual orbit")
+    # plt.plot(truncated_range,np.abs(solution_1_fourier - solution_2_fourier), color="red")
+    plt.plot(truncated_range,(solution_1_fourier - solution_2_fourier)[:max_frequency], color="red", label="real difference")
+    plt.plot(truncated_range,(solution_1_fourier - solution_2_fourier)[:max_frequency] * -1j, color="black", label="imaginary difference")
+    plt.title("Difference in theoretical and observed")
+    plt.legend()
+    # plt.show()
 
 examples = [
-    [1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01), 100000, 1, 1],   # coil orbit
-    [1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01) * 0.99, 100000, 1, 1], # messier coild orbit
-    [1, 0, 0, np.sqrt(G*10000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01), 100000, 1, 100] # massive 2nd body
+    # [1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01), 100000, 1, 1],   # coil orbit
+    # [1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01) * 0.99, 100000, 1, 1], # messier coild orbit
+    # [1, 0, 0, np.sqrt(G*10000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01), 100000, 1, 100], # massive 2nd body
+    [1, 0, 0.001, np.sqrt(G*100000/1), 2, 0, 0, np.sqrt(G*100000/2), 100000, 1, 1], # two bodies, minor x velocity 
+    [1, 0, 0.001, np.sqrt(G*100000/1), 2, 0, 0, np.sqrt(G*100000/2), 100000, 1, 2], 
+    [1, 0, 0.001, np.sqrt(G*100000/1), 2, 0, 0, np.sqrt(G*100000/2), 100000, 1, 5],
+    # [1, 0, 0, np.sqrt(G*100000/1), 1.5, 0, 0, np.sqrt(G*100000/2), 100000, 1000, 1], # two bodies, massive 1st body
+    # [1, 0, 0, np.sqrt(G*100000/1), 1.1, 0, 0, np.sqrt(G*100000/1.1), 100000, 100, 1], # two bodies, (less) massive 1st body 
+    # [1, 0, 0, np.sqrt(G*100000/1), -1.01, 0, 0, np.sqrt(G*100000/1.01), 10000, 1, 1], # two bodies travelling opposite directions
 ]
 
-for example in examples: 
-    x1, y1, vx1, vy1, x2, y2, vx2, vy2, m0, m1, m2 = example
+fig = plt.figure(figsize=(8,6))
+
+for i in range(len(examples)): 
+    plt.subplot(len(examples), 1, i+1)
+    x1, y1, vx1, vy1, x2, y2, vx2, vy2, m0, m1, m2 = examples[i]
     two_body_solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
     one_body_solution = odeint(one_body, [x1, y1, vx1, vy1], t, args=(G, m0))
-    plot_two_body_orbit(two_body_solution)
-    plot_fourier([two_body_solution, one_body_solution])
+    # plot_two_body_orbit(two_body_solution)
     plot_fourier_difference(one_body_solution, two_body_solution) 
-
-# # one body close to sun 
-# x1, y1, vx1, vy1 = [0.07, 0, 0, np.sqrt(G*m0/0.07) * 0.7]  
-# solution = odeint(one_body, [x1, y1, vx1, vy1], t, args=(G, m0))
-# x1 = solution[:, 0]  
-# y1 = solution[:, 1]     
-# s = solution[:, 0]     # 1st body x values
-# fourier = np.fft.rfft(s)
-# plt.plot(freq,np.abs(fourier))
-# plt.title("Graph 4")
-# plt.show()
-# plt.plot(x1,y1)
-# plt.title("Graph 4 - unstable 1 body")
-# plt.show()
-
-# # two bodies, large second mass
-# m2=100
-# x1, y1, vx1, vy1, x2, y2, vx2, vy2 = [1, 0, 0, np.sqrt(G*m0/1), 1.01, 0, 0, np.sqrt(G*m0/1.01)]
-# solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
-# m2=1
-# x1 = solution[:, 0]
-# y1 = solution[:, 1]
-# x2 = solution[:, 4]
-# y2 = solution[:, 5]
-# s = solution[:, 0]     # 1st body x values
-# fourier = np.fft.rfft(s)
-# plt.plot(freq,np.abs(fourier))
-# plt.title("Graph 5")
-# plt.show()
-# plt.plot(x1,y1)
-# plt.plot(x2,y2)
-# plt.title("Graph 5 - MASSIVE 2nd body")
-# plt.show()
-
-# # two bodies, minor x velocity 
-# x1, y1, vx1, vy1, x2, y2, vx2, vy2 = [1, 0, 0.001, np.sqrt(G*m0/1), 2, 0, 0, np.sqrt(G*m0/2)]
-# solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
-# x1 = solution[:, 0]
-# y1 = solution[:, 1]
-# x2 = solution[:, 4]
-# y2 = solution[:, 5]
-# s = solution[:, 0]     # 1st body x values
-# fourier = np.fft.rfft(s)
-# plt.plot(freq,np.abs(fourier))
-# plt.title("Graph 6")
-# plt.show()
-# plt.plot(x1,y1)
-# plt.plot(x2,y2)
-# plt.title("Graph 6 - threw some vx in there")
-# plt.show()
-
-# # two bodies, massive 1st body 
-# m1=1000
-# x1, y1, vx1, vy1, x2, y2, vx2, vy2 = [1, 0, 0, np.sqrt(G*m0/1), 1.5, 0, 0, np.sqrt(G*m0/2)]
-# solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
-# x1 = solution[:, 0]
-# y1 = solution[:, 1]
-# x2 = solution[:, 4]
-# y2 = solution[:, 5]
-# s = solution[:, 0]     # 1st body x values
-# fourier = np.fft.rfft(s)
-# plt.plot(freq,np.abs(fourier))
-# plt.title("Graph 7")
-# plt.show()
-# plt.plot(x1,y1)
-# plt.plot(x2,y2)
-# plt.title("Graph 7 - loooooow taaaaper faaaade ahh 1st body")
-# plt.show()
-
-# # two bodies, (less) massive 1st body 
-# m1=100
-# x1, y1, vx1, vy1, x2, y2, vx2, vy2 = [1, 0, 0, np.sqrt(G*m0/1), 1.1, 0, 0, np.sqrt(G*m0/1.1)]
-# solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
-# x1 = solution[:, 0]
-# y1 = solution[:, 1]
-# x2 = solution[:, 4]
-# y2 = solution[:, 5]
-# s = solution[:, 0]     # 1st body x values
-# fourier = np.fft.rfft(s)
-# plt.plot(freq,np.abs(fourier))
-# plt.title("Graph 8")
-# plt.show()
-# plt.plot(x1,y1)
-# plt.plot(x2,y2)
-# plt.title("Graph 8 - (less) massive 1st body")
-# plt.show()
-
-# # two bodies travelling opposite directions
-# m1=1
-# x1, y1, vx1, vy1, x2, y2, vx2, vy2 = [1, 0, 0, np.sqrt(G*m0/1), -1.01, 0, 0, np.sqrt(G*m0/1.01)]
-# solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
-# x1 = solution[:, 0]
-# y1 = solution[:, 1]
-# x2 = solution[:, 4]
-# y2 = solution[:, 5]
-# s = solution[:, 0]     # 1st body x values
-# fourier = np.fft.rfft(s)
-# plt.plot(freq,np.abs(fourier))
-# plt.title("Graph 9")
-# plt.show()
-# plt.plot(x1,y1)
-# plt.plot(x2,y2)
-# plt.title("Graph 9 - opposite direction orbits")
-# plt.show()
+plt.tight_layout()
+plt.show()
