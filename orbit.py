@@ -2,13 +2,12 @@
 
 import numpy as np
 from scipy.integrate import odeint
-from scipy.fft import fft
-from scipy.fft import rfft
 import matplotlib.pyplot as plt
+import samples
 
 
 # Constatnts
-G = 6.674e-11
+G = samples.G
 
 # Simulation setup
 samples_per_time = 10
@@ -71,37 +70,34 @@ def plot_fourier_difference(solution_1, solution_2, title):
     solution_1_fourier = np.fft.rfft(solution_1_values)
     solution_2_fourier = np.fft.rfft(solution_2_values)
 
-    max_frequency = int(0.02 * time_steps / samples_per_time)
-    truncated_range = freq[:max_frequency]
+    min_f = 0.0
+    max_f = 0.02
+    min_frequency = int(min_f * time_steps / samples_per_time)
+    max_frequency = int(max_f * time_steps / samples_per_time)
+    truncated_range = freq[min_frequency:max_frequency]
 
-    plt.plot(truncated_range,np.abs(solution_1_fourier)[:max_frequency], color="blue", label="theoretical orbit")
-    plt.plot(truncated_range,np.abs(solution_2_fourier)[:max_frequency], color="orange", label="actual orbit")
+    plt.plot(truncated_range,np.abs(solution_1_fourier)[min_frequency:max_frequency], color="blue", label="theoretical orbit")
+    plt.plot(truncated_range,np.abs(solution_2_fourier)[min_frequency:max_frequency], color="orange", label="actual orbit")
     # plt.plot(truncated_range,np.abs(solution_1_fourier - solution_2_fourier), color="red")
-    plt.plot(truncated_range,(solution_1_fourier - solution_2_fourier)[:max_frequency], color="red", label="real difference")
-    plt.plot(truncated_range,(solution_1_fourier - solution_2_fourier)[:max_frequency] * -1j, color="black", label="imaginary difference")
+    plt.plot(truncated_range,(solution_1_fourier - solution_2_fourier)[min_frequency:max_frequency], color="red", label="real difference")
+    plt.plot(truncated_range,(solution_1_fourier - solution_2_fourier)[min_frequency:max_frequency] * -1j, color="black", label="imaginary difference")
     # plt.title("Difference in theoretical and observed")
     plt.title(title)
-    plt.legend()
+    plt.legend(loc="upper right")
     # plt.show()
 
 labels = [
     "x1", "y1", "vx1", "vy1", "x2", "y2", "vx2", "vy2", "M", "m1", "m2"
 ]
 
-examples = [
-    # [1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01), 100000, 1, 1],   # coil orbit
-    # [1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01) * 0.99, 100000, 1, 1], # messier coild orbit
-    # [1, 0, 0, np.sqrt(G*10000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01), 100000, 1, 100], # massive 2nd body
-    [1, 0, 0.001, np.sqrt(G*100000/1), 2, 0, 0, np.sqrt(G*100000/2), 100000, 1, 1], # two bodies, minor x velocity 
-    [1, 0, 0.001, np.sqrt(G*100000/1), 2, 0, 0, np.sqrt(G*100000/2), 100000, 1, 2], 
-    [1, 0, 0.001, np.sqrt(G*100000/1), 2, 0, 0, np.sqrt(G*100000/2), 100000, 1, 5],
-    # [1, 0, 0, np.sqrt(G*100000/1), 1.5, 0, 0, np.sqrt(G*100000/2), 100000, 1000, 1], # two bodies, massive 1st body
-    # [1, 0, 0, np.sqrt(G*100000/1), 1.1, 0, 0, np.sqrt(G*100000/1.1), 100000, 100, 1], # two bodies, (less) massive 1st body 
-    # [1, 0, 0, np.sqrt(G*100000/1), -1.01, 0, 0, np.sqrt(G*100000/1.01), 10000, 1, 1], # two bodies travelling opposite directions
-]
+# examples = samples.increasing_2nd_body_mass
+# examples = samples.decreasing_v2y
+# examples = samples.increasing_vx
+# examples = samples.decreasing_dist
+# examples = samples.increasing_both_mass
+examples = samples.decreasing_dist_opposing_orbits
 
 fig = plt.figure(figsize=(8,6))
-
 for i in range(len(examples)): 
     plt.subplot(len(examples), 1, i+1)
     x1, y1, vx1, vy1, x2, y2, vx2, vy2, m0, m1, m2 = examples[i]
