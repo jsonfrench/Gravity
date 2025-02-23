@@ -90,6 +90,48 @@ def plot_fourier_difference(solution_1, solution_2, title):
     plt.legend(loc="upper right")
     # plt.show()
 
+def plot_peak_width(solution, title):
+
+    solution_values = solution[:, 0]
+
+    solution_fourier = np.fft.rfft(solution_values)
+
+
+    x_values = two_body_solution[:, 0]  # Extract x coordinate
+    x_values_one = one_body_solution[:, 0]  # Extract x coordinate
+    x_hat = np.fft.rfft(x_values)       # Compute FFT
+    x_hat_one = np.fft.rfft(x_values_one)       # Compute FFT
+    F_upper = 10000 
+    height_threshold = 2000
+
+    peaks, _ = sci.signal.find_peaks(np.abs(x_hat), height=height_threshold)  
+    tallest_peak_index = peaks[np.argmax(np.abs(x_hat[peaks]))]  # Index of max peak
+    width = sci.signal.peak_widths(np.abs(x_hat), [tallest_peak_index])[0][0] / samples_per_time
+    print("width:",width)
+    print("tallest peak index (plot peak width): ", tallest_peak_index)
+
+    tallest_peak_freq = freq[tallest_peak_index]  # Frequency of max peak
+
+    results_half = sci.signal.peak_widths(solution_values, peaks, rel_height=0.5)
+    results_half[0]  # widths
+
+    plt.plot(solution_values)
+    plt.plot(peaks, solution_values[peaks], "solution_values")
+    plt.hlines(*results_half[1:], color="C2")
+    # plt.show()
+
+
+    min_f = tallest_peak_freq - (width / (2))   
+    max_f = tallest_peak_freq + (width / (2))
+    min_frequency = int(min_f * time_steps)
+    max_frequency = int(max_f * time_steps)
+    truncated_range = freq[min_frequency:max_frequency]
+    # plt.plot(truncated_range,np.abs(solution_fourier)[min_frequency:max_frequency], color="green", label="theoretical orbit")
+
+    # plt.title(title)
+    # plt.legend(loc="upper right")
+    # plt.show()
+
 labels = [
     "x1", "y1", "vx1", "vy1", "x2", "y2", "vx2", "vy2", "M", "m1", "m2"
 ]
@@ -101,17 +143,30 @@ labels = [
 # examples = samples.decreasing_dist_opposing_orbits
 # examples = samples.eliptical
 
-# examples = samples.decreasing_v2y
-# examples = samples.decreasing_dist
-examples = samples.increasing_2nd_body_mass
+examples = []
+num=50
+for i in range(num):
+    examples.append(
+        [1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01) * (1.0 + i*(0.4/(num+1))), 100000, 1, 1], 
+    )
 
+# examples = samples.decreasing_dist
+# examples = samples.increasing_2nd_body_mass
 
 categories=[]
-heights=[]
+peak_heights=[]
+peak_widths=[]
+
+masses=np.array([])
+distances = np.array([])
+eccentricities = np.array([])
 
 fig = plt.figure(figsize=(8,6))
 
 for i in range(len(examples)): 
+
+    print(f"simulating: {i+1}/{len(examples)}")
+
     plt.subplot(len(examples), 1, i+1)
     x1, y1, vx1, vy1, x2, y2, vx2, vy2, m0, m1, m2 = examples[i]
     two_body_solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
@@ -124,44 +179,77 @@ for i in range(len(examples)):
         for j in range(len(examples[i])):
             title += "" if examples[i][j] == examples[0][j] else f"{labels[j]}={examples[i][j]} "     # add parameter to title if it doesnt match base state
     plot_fourier_difference(one_body_solution, two_body_solution, title)
+    # plot_peak_width(two_body_solution, "Isolated spike")
 
 
     # Plot variation in peaks
     categories.append(title)
     x_values = two_body_solution[:, 0]  # Extract x coordinate
-    # x_values_one = one_body_solution[:, 0]  # Extract x coordinate
+    x_values_one = one_body_solution[:, 0]  # Extract x coordinate
     x_hat = np.fft.rfft(x_values)       # Compute FFT
-    # x_hat_one = np.fft.rfft(x_values_one)       # Compute FFT
+    x_hat_one = np.fft.rfft(x_values_one)       # Compute FFT
     F_upper = 10000 
-    height = 200 
-    peaks, _ = sci.signal.find_peaks(np.abs(x_hat[:F_upper]), height=height)  # Find peaks
-    # peaks_one, _ = sci.signal.find_peaks(np.abs(x_hat_one[:F_upper]), height=height)  # Find peaks
+    height_threshold = 2000
+    peaks, _ = sci.signal.find_peaks(np.abs(x_hat[:F_upper]), height=height_threshold)  # Find peaks
+    peaks_one, _ = sci.signal.find_peaks(np.abs(x_hat_one[:F_upper]), height=height_threshold)  # Find peaks
     plt.scatter(freq[peaks], np.abs(x_hat[peaks]), c='orange')
+
+    print("peaks: ", peaks)
+    widths = sci.signal.peak_widths(np.abs(x_hat[:F_upper]), peaks)
+    print("peak widths:", widths)
 
     tallest_peak_index = peaks[np.argmax(np.abs(x_hat[peaks]))]  # Index of max peak
     tallest_peak_freq = freq[tallest_peak_index]  # Frequency of max peak
-    plt.scatter(tallest_peak_freq, np.abs(x_hat[tallest_peak_index]), c='red', label="Tallest Peak", marker="x", s=100)
+    plt.scatter(tallest_peak_freq, np.abs(x_hat[tallest_peak_index]), c='orange', label="Tallest Peak", marker="x", s=100)
+    print("tallest peak index (two body orbit): ", tallest_peak_index)
 
-    # tallest_peak_index_one = peaks[np.argmax(np.abs(x_hat_one[peaks]))]  # Index of max peak
-    # tallest_peak_freq_one = freq[tallest_peak_index]  # Frequency of max peak
-    # plt.scatter(tallest_peak_freq_one, np.abs(x_hat_one[tallest_peak_index_one]), c='red', label="Tallest Peak", marker="x", s=100)
 
-    # heights.append(np.abs(x_hat[tallest_peak_index])- np.abs(x_hat_one[tallest_peak_index_one]))
+    tallest_peak_index_one = peaks[np.argmax(np.abs(x_hat_one[peaks]))]  # Index of max peak for one body orbit
+    tallest_peak_freq_one = freq[tallest_peak_index]  # Frequency of max peak for one body orbit
+    plt.scatter(tallest_peak_freq_one, np.abs(x_hat_one[tallest_peak_index_one]), c='blue', label="Tallest Peak", marker="x", s=100)
 
-    print("difference in indices", tallest_peak_index)
+
+
+    peak_heights.append(np.abs(x_hat[tallest_peak_index])-np.abs(x_hat_one[tallest_peak_index_one]))
+    # peak_widths.append(sci.signal.peak_widths(np.abs(x_hat[:F_upper]), [tallest_peak_index]))
+
+    # print("difference in indices", tallest_peak_index - tallest_peak_index_one)
+
+    eccentricities = np.append(eccentricities,[examples[i][7] / np.sqrt(G*100000/1.01)])
+    distances = np.append(distances,examples[i][4]-examples[i][0])
+    masses = np.append(masses,examples[i][10])
 
 plt.tight_layout()
+plt.show()
+
+print("peak heights:", peak_heights)
+print("peak widths:", peak_widths)
+
+for i in range(len(peak_heights)):
+    # plt.scatter(masses[i],peak_heights[i])
+    # print(f"({masses[i]},{peak_heights[i]})")
+    # plt.scatter(masses[i],peak_widths[i])
+    # print(f"({masses[i]},{peak_widths[i]})")
+
+    # plt.scatter(distances[i],peak_heights[i], c="orange")
+    # print(f"({distances[i]},{peak_heights[i]})")
+
+    plt.scatter(eccentricities[i],peak_heights[i],c="orange")
+
+plt.plot(masses,1791.87136*masses + 951.85075)
+# plt.plot(distances,2468.88*distances**-1.76386)
+
 plt.show()
 
 
 
 # Create the bar chart
-plt.bar(categories, heights, color='orange')
-print(heights)
+plt.bar(categories, peak_heights, color='orange')
+print(peak_heights)
 
 # Add labels and title
 plt.xlabel('Categories')
-plt.ylabel('Heights')
+plt.ylabel('peak_heights')
 plt.title('Height of Max Peak')
 
 # Show the plot
