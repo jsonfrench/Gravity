@@ -14,6 +14,17 @@ samples_per_time = 128
 time_steps = 100000 * 1
 t = np.linspace(0, time_steps, time_steps * samples_per_time)
 
+def one_body(IVP, t, G, M): 
+    
+    x, y, vx, vy = IVP
+
+    r = np.sqrt(x**2 + y**2)
+
+    ax = -G * M * x / r**3
+    ay = -G * M * y / r**3
+
+    return [vx, vy, ax, ay]
+
 def two_body(IVP, t, G, M, m1, m2):
     x1, y1, vx1, vy1, x2, y2, vx2, vy2 = IVP
 
@@ -32,8 +43,11 @@ def two_body(IVP, t, G, M, m1, m2):
 # will be used to create an interactive plot with tmax as a slider.
 # Must be called using the ipywidgets interact method.
 # Takes ODE solution and tmax (converted to indices within) as arguments.
-def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000) -> None:
-    
+def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000, theoretical: NDArray = None, plot_error = False) -> None:
+    if plot_error == True and theoretical.all() == None:
+        print('you forgot to input the theoretical orbit so error plotting is ignored')
+        plot_error = False
+
     # moved figure creation to local rather than global
     fig, ax = plt.subplots(figsize=(8, 6))
     ax.set_xlim(-2, 2)
@@ -56,6 +70,9 @@ def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000) -> None
     line2, = ax.plot(two_body_x2[:initial_index], two_body_y2[:initial_index])
     scatter1 = ax.scatter(two_body_x1[initial_index], two_body_y1[initial_index], color='blue')
     scatter2 = ax.scatter(two_body_x2[initial_index], two_body_y2[initial_index], color='orange')
+    if plot_error == True:
+        error = orbital_error(theoretical=one_body_solution, actual=two_body_solution, index_observation=initial_index)
+        plot_current_error(error=error, current_index=initial_index, ax=ax)
 
     #ax.legend()
 
@@ -80,6 +97,11 @@ def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000) -> None
         scatter1.set_offsets([two_body_x1[index], two_body_y1[index]])
         scatter2.set_offsets([two_body_x2[index], two_body_y2[index]])
 
+        if plot_error == True:
+            error = orbital_error(theoretical=one_body_solution, actual=two_body_solution, index_observation=index)
+            plot_current_error(error=error, current_index = index, ax=ax)
+
+
         fig.canvas.draw_idle()
 
     
@@ -98,6 +120,44 @@ def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000) -> None
 
     plt.show()
 
+# method that will add the current orbital error to the interactive 
+# plot of the two planets' orbits
+def plot_current_error(error: tuple, current_index: int, ax: plt.Axes) -> None:
+    for text in ax.texts:
+        text.remove()
+
+    # unpack error
+    x_error, y_error, L2_error = error
+
+    error_info = f'current \n x_err = {round(x_error,6)} \n y_err = {round(y_error,6)} \n L2_err = {round(L2_error,6)}'
+    
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+
+    # place a text box in upper left
+    ax.text(0.05, 0.95, error_info, transform=ax.transAxes, fontsize=10,
+        verticalalignment='top', bbox=props)
+
+
+# method that computes the error in the x- and y-directions as well as the 
+# L2 error between the theoretical and actual orbits of the known planet
+# at a specific time.  Takes in the theoretical and actual orbital arrays 
+# (in [[x],[y]] format), the *index* at which the observation is made, and 
+# returns a tuple containing (x_error, y_error, L2_error)
+def orbital_error(theoretical: NDArray, actual: NDArray, index_observation: int) -> tuple:
+    theor_x = theoretical[:,0]
+    theor_y = theoretical[:,1]
+    actual_x = actual[:,0]
+    actual_y = actual[:,1]
+
+    x_error = np.abs(theor_x[index_observation] - actual_x[index_observation])
+    y_error = np.abs(theor_y[index_observation] - actual_y[index_observation])
+
+    L2_error = np.sqrt(x_error**2 + y_error**2)
+
+    return (x_error,y_error,L2_error)
+
+
+
 
 ###############################################################
 # TESTING plot_two_body_orbit_interactive
@@ -105,8 +165,8 @@ def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000) -> None
 
 examples1 = samples.decreasing_dist
 
-x1, y1, vx1, vy1, x2, y2, vx2, vy2, m0, m1, m2 = examples1[6]
+x1, y1, vx1, vy1, x2, y2, vx2, vy2, m0, m1, m2 = examples1[7]
 two_body_solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
+one_body_solution = odeint(one_body, [x1, y1, vx1, vy1], t, args=(G, m0))
 
-
-plot_two_body_orbit_interactive(two_body_solution, tmax=7500)
+plot_two_body_orbit_interactive(two_body_solution, tmax=7500, theoretical=one_body_solution, plot_error=True)
