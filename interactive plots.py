@@ -43,10 +43,14 @@ def two_body(IVP, t, G, M, m1, m2):
 # will be used to create an interactive plot with tmax as a slider.
 # Must be called using the ipywidgets interact method.
 # Takes ODE solution and tmax (converted to indices within) as arguments.
-def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000, theoretical: NDArray = None, plot_error = False) -> None:
+def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000, theoretical: NDArray = None, plot_error = False, plot_theoretical = False) -> None:
     if plot_error == True and theoretical.all() == None:
         print('you forgot to input the theoretical orbit so error plotting is ignored')
         plot_error = False
+
+    if plot_theoretical == True and theoretical.all() == None:
+        print('you forgot to input the theoretical orbit so theoretical orbit plotting is ignored')
+        plot_theoretical = False
 
     # moved figure creation to local rather than global
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -65,14 +69,24 @@ def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000, theoret
     two_body_x2 = solution[:, 4]
     two_body_y2 = solution[:, 5]
 
+    if plot_theoretical == True:
+        theor_x = theoretical[:,0]
+        theor_y = theoretical[:,1]
+
     # plot the initial orbits
-    line1, = ax.plot(two_body_x1[:initial_index], two_body_y1[:initial_index])
-    line2, = ax.plot(two_body_x2[:initial_index], two_body_y2[:initial_index])
-    scatter1 = ax.scatter(two_body_x1[initial_index], two_body_y1[initial_index], color='blue')
-    scatter2 = ax.scatter(two_body_x2[initial_index], two_body_y2[initial_index], color='orange')
+    home_orbit_actual, = ax.plot(two_body_x1[:initial_index], two_body_y1[:initial_index])
+    mystery_orbit, = ax.plot(two_body_x2[:initial_index], two_body_y2[:initial_index])
+    home_planet_actual = ax.scatter(two_body_x1[initial_index], two_body_y1[initial_index], color='blue')
+    mystery_planet_actual = ax.scatter(two_body_x2[initial_index], two_body_y2[initial_index], color='orange')
     if plot_error == True:
         error = orbital_error(theoretical=one_body_solution, actual=two_body_solution, index_observation=initial_index)
         plot_current_error(error=error, current_index=initial_index, ax=ax)
+    if plot_theoretical == True:
+        t_segment = np.linspace(0,1,100)
+        x_component_segment = t_segment * theor_x[initial_index] + (1-t_segment) * two_body_x1[initial_index]
+        y_component_segment = t_segment * theor_y[initial_index] + (1-t_segment) * two_body_y1[initial_index]
+        error_segment, = ax.plot(x_component_segment, y_component_segment, c='black')
+        home_planet_theoretical = ax.scatter(theor_x[initial_index], theor_y[initial_index], c='black')
 
     #ax.legend()
 
@@ -89,18 +103,24 @@ def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000, theoret
     # adjust the plot based on the slider
     def update(val):
         index = int(time_slider.val)
-        line1.set_xdata(two_body_x1[:index])
-        line1.set_ydata(two_body_y1[:index])
-        line2.set_xdata(two_body_x2[:index])
-        line2.set_ydata(two_body_y2[:index])
+        home_orbit_actual.set_xdata(two_body_x1[:index])
+        home_orbit_actual.set_ydata(two_body_y1[:index])
+        mystery_orbit.set_xdata(two_body_x2[:index])
+        mystery_orbit.set_ydata(two_body_y2[:index])
 
-        scatter1.set_offsets([two_body_x1[index], two_body_y1[index]])
-        scatter2.set_offsets([two_body_x2[index], two_body_y2[index]])
+        home_planet_actual.set_offsets([two_body_x1[index], two_body_y1[index]])
+        mystery_planet_actual.set_offsets([two_body_x2[index], two_body_y2[index]])
 
         if plot_error == True:
             error = orbital_error(theoretical=one_body_solution, actual=two_body_solution, index_observation=index)
             plot_current_error(error=error, current_index = index, ax=ax)
 
+        if plot_theoretical == True:
+            x_component_segment = t_segment * theor_x[index] + (1-t_segment) * two_body_x1[index]
+            y_component_segment = t_segment * theor_y[index] + (1-t_segment) * two_body_y1[index]
+            error_segment.set_xdata(x_component_segment)
+            error_segment.set_ydata(y_component_segment)
+            home_planet_theoretical.set_offsets([theor_x[index], theor_y[index]])
 
         fig.canvas.draw_idle()
 
@@ -169,4 +189,4 @@ x1, y1, vx1, vy1, x2, y2, vx2, vy2, m0, m1, m2 = examples1[7]
 two_body_solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
 one_body_solution = odeint(one_body, [x1, y1, vx1, vy1], t, args=(G, m0))
 
-plot_two_body_orbit_interactive(two_body_solution, tmax=7500, theoretical=one_body_solution, plot_error=True)
+plot_two_body_orbit_interactive(two_body_solution, tmax=7500, theoretical=one_body_solution, plot_error=True, plot_theoretical=True)
