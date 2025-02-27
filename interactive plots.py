@@ -54,6 +54,9 @@ def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000) -> None
     # plot the initial orbits
     line1, = ax.plot(two_body_x1[:initial_index], two_body_y1[:initial_index])
     line2, = ax.plot(two_body_x2[:initial_index], two_body_y2[:initial_index])
+    scatter1 = ax.scatter(two_body_x1[initial_index], two_body_y1[initial_index], color='blue')
+    scatter2 = ax.scatter(two_body_x2[initial_index], two_body_y2[initial_index], color='orange')
+
     #ax.legend()
 
     # slider to control time
@@ -73,7 +76,13 @@ def plot_two_body_orbit_interactive(solution: NDArray, tmax: int = 1000) -> None
         line1.set_ydata(two_body_y1[:index])
         line2.set_xdata(two_body_x2[:index])
         line2.set_ydata(two_body_y2[:index])
+
+        scatter1.set_offsets([two_body_x1[index], two_body_y1[index]])
+        scatter2.set_offsets([two_body_x2[index], two_body_y2[index]])
+
         fig.canvas.draw_idle()
+
+    
 
     # update when slider changes
     time_slider.on_changed(update)
@@ -100,4 +109,4 @@ x1, y1, vx1, vy1, x2, y2, vx2, vy2, m0, m1, m2 = examples1[6]
 two_body_solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
 
 
-plot_two_body_orbit_interactive(two_body_solution, tmax=5000)
+plot_two_body_orbit_interactive(two_body_solution, tmax=7500)
