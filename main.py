@@ -11,10 +11,10 @@ import constants
 G = constants.G
 
 # Simulation parameters
-samples_per_time = 128
-time_steps = 100000
-t = np.linspace(0, time_steps, time_steps*samples_per_time) # array of time points to solve the system at
-freq = np.fft.rfftfreq(len(t), 1/samples_per_time)  # frequencies to be used by the discrete fourier transform 
+samples_per_time    = 128
+time_steps          = 100000
+t                   = np.linspace(0, time_steps, time_steps*samples_per_time) # array of time points to solve the system at
+freq                = np.fft.rfftfreq(t.size+1, 1/samples_per_time)  # frequencies to be used by the discrete fourier transform 
 
 #############
 # Functions #
@@ -46,40 +46,42 @@ def two_body(IVP, t, G, M, m1, m2):
 
     return [vx1, vy1, ax1, ay1, vx2, vy2, ax2, ay2]
 
-def plot_two_body_orbit(solution):
+def compute_fft(solution) -> np.array:
+    return np.abs(np.fft.rfft(solution))
 
-    two_body_solution = solution
+def compute_complex_fft(solution) -> np.array:
+    return np.fft.rfft(solution)
+
+def compute_fourier_difference(fft_1, fft_2) -> tuple:
+
+    real_difference = fft_1 - fft_2
+    imaginary_difference = fft_1 - fft_2 * -1j
+
+    return (real_difference, imaginary_difference)
+
+def plot_two_body_orbit(two_body_solution) -> None:
 
     two_body_x1 = two_body_solution[:, 0]
     two_body_y1 = two_body_solution[:, 1]
     two_body_x2 = two_body_solution[:, 4]
     two_body_y2 = two_body_solution[:, 5]
 
-    plt.plot(two_body_x1,two_body_y1, label="body 1")
-    plt.plot(two_body_x2,two_body_y2, label = "body 2")
+    plt.plot(two_body_x1,two_body_y1, label="Body 1")
+    plt.plot(two_body_x2,two_body_y2, label = "Body 2")
 
-def plot_fourier_difference(solution_1, solution_2, title):
+def plot_fourier_difference(fft_1, fft_2, min_freq=0, max_freq=freq.size) -> None:
 
-    # set bounds of plot
-    min_frequency = 0 #40
-    max_frequency = 100 #50
-    truncated_range = freq[min_frequency:max_frequency]
-
-    # get x part of the solution and fourier transform it
-    solution_1_values = solution_1[:, 0]
-    solution_2_values = solution_2[:, 0]
-    solution_1_fourier = np.abs(np.fft.rfft(solution_1_values))[min_frequency:max_frequency]
-    solution_2_fourier = np.abs(np.fft.rfft(solution_2_values))[min_frequency:max_frequency]
+    difference = compute_fourier_difference(fft_1, fft_2)
+    real_difference = difference[0]
+    imaginary_difference = difference[1]
 
     # plot lines
-    plt.plot(truncated_range,solution_1_fourier, color="blue", label="theoretical orbit")
-    plt.plot(truncated_range,solution_2_fourier, color="orange", label="actual orbit")
-    plt.plot(truncated_range,solution_1_fourier - solution_2_fourier, color="red", label="real difference")
-    plt.plot(truncated_range,(solution_1_fourier - solution_2_fourier) * -1j, color="black", label="imaginary difference")
+    plt.plot(freq[min_freq:max_freq], (fft_1/(t.size/2))[min_freq:max_freq],                 color="blue",   label="theoretical orbit")
+    plt.plot(freq[min_freq:max_freq], (fft_2/(t.size/2))[min_freq:max_freq],                 color="orange", label="actual orbit")
+    plt.plot(freq[min_freq:max_freq], (real_difference/(t.size/2))[min_freq:max_freq],       color="red",    label="real difference")
+    plt.plot(freq[min_freq:max_freq], (imaginary_difference/(t.size/2))[min_freq:max_freq],  color="black",  label="imaginary difference")
 
-    plt.title(title)
     plt.legend(loc="upper right")
-    # plt.show()
 
 def mark_peaks(solution_1, solution_2):
 
@@ -144,7 +146,37 @@ def mark_peaks(solution_1, solution_2):
     peak_heights.append(tallest_peak_difference)  
     # peak_widths.append(sci.signal.peak_widths(np.abs(x_hat[:F_upper]), [tallest_peak_index]))
 
+def get_peaks(fft, min_peak_height) -> np.array:
 
+    peaks, _ = sci.signal.find_peaks(fft, height=min_peak_height)   # Find peaks in a fourier spectrum
+
+    return peaks
+
+def compute_weighted_average(fft) -> tuple:
+
+    freqs = freq
+    weights = fft
+    weights = weights / np.sum(weights)
+
+    peak_freqs = get_peaks(fft)
+    peak_weights = fft[peak_freqs]
+    peak_weights = peak_weights / np.sum(peak_weights)
+
+    weighted_average_frequency = np.sum(freqs * weights) 
+    weighted_average_peak_frequency = np.sum(peak_freqs * peak_weights)
+
+    return (weighted_average_frequency, weighted_average_peak_frequency)
+
+def plot_peaks(fft, min_height=0, color="blue", min_freq=0, max_freq=freq.size) -> None:
+    
+    peaks = get_peaks(fft, min_height)
+
+    tallest_peak = peaks[np.argmax(fft[peaks])]
+
+    plt.scatter(freq[peaks], fft[peaks], color = color, marker="o") 
+    plt.scatter(freq[tallest_peak], fft[tallest_peak], color = color, marker="x") 
+
+    
 def plot_peak_width(solution, title):
 
     solution_values = solution[:, 0]
@@ -183,7 +215,7 @@ def plot_peak_width(solution, title):
 
 # examples = [[1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01) * 1.4, 100000, 1, 1]]
 # examples = [[1, 0, 0, np.sqrt(G*100000/1), 1.01, 0, 0, np.sqrt(G*100000/1.01) * 0.99, 100000, 1, 1]] # messier coil orbit
-examples = [samples.decreasing_dist[7]]
+examples = [samples.decreasing_dist[6]]
 
 categories=[]
 peak_heights=[] 
@@ -211,6 +243,9 @@ for i in range(len(examples)):
     two_body_solution = odeint(two_body, [x1, y1, vx1, vy1, x2, y2, vx2, vy2], t, args=(G, m0, m1, m2))
     one_body_solution = odeint(one_body, [x1, y1, vx1, vy1], t, args=(G, m0))
 
+    two_body_fourier = compute_complex_fft(two_body_solution[:, 0])   #fft of x values
+    one_body_fourier = compute_complex_fft(one_body_solution[:, 0])   #fft of theoretical x values
+
     plt.subplot(len(examples), 1, i+1)  # Make a plot with 1 column and i rows
 
     # Add chart title
@@ -221,32 +256,36 @@ for i in range(len(examples)):
         for j in range(len(examples[i])):
             title += "" if examples[i][j] == examples[0][j] else f"{labels[j]}={examples[i][j]} " # add parameter to title if it doesnt match base state
 
-    # run functions
-    plt.subplot(1,3,1)
-    plot_two_body_orbit(two_body_solution)
-    plt.title("Two Body Orbit")
-    plt.ylabel("y_position")
-    plt.xlabel("x_position")
-    plt.legend()
+    # plot_fourier_difference(two_body_fourier, one_body_fourier, 20, 60) 
+    plt.plot(freq[20:60], np.abs(two_body_fourier)[20:60], color="orange")
+    plot_peaks(two_body_fourier[20:60], min_freq=20, max_freq=60)
+
+    # # run functions
+    # plt.subplot(1,3,1)
+    # plot_two_body_orbit(two_body_solution)
+    # plt.title("Two Body Orbit")
+    # plt.ylabel("y_position")
+    # plt.xlabel("x_position")
+    # plt.legend()
+    # # plt.show()
+
+    # # plot_fourier_difference(one_body_solution, two_body_solution, title)
+    # # plt.plot(t, np.abs(np.fft.rfft(two_body_solution[:, 0])), color="orange")
+
+    # plt.subplot(1,3,2)
+    # plt.plot(t, (two_body_solution[:, 0]), color="blue")
+    # plt.title("X Position of First Body")
+    # plt.xlabel("Time")
+    # plt.ylabel("X Position")
+    # # plt.show()
+
+    # plt.subplot(1,3,3)
+    # plt.plot(np.linspace(0,100,100), np.abs(np.fft.rfft(two_body_solution[:, 0]))[0:100], color="orange")
+    # plt.title("Fourier Transform of X Position")
+
     # plt.show()
 
-    # plot_fourier_difference(one_body_solution, two_body_solution, title)
-    # plt.plot(t, np.abs(np.fft.rfft(two_body_solution[:, 0])), color="orange")
-
-    plt.subplot(1,3,2)
-    plt.plot(t, (two_body_solution[:, 0]), color="blue")
-    plt.title("X Position of First Body")
-    plt.xlabel("Time")
-    plt.ylabel("X Position")
-    # plt.show()
-
-    plt.subplot(1,3,3)
-    plt.plot(np.linspace(0,100,100), np.abs(np.fft.rfft(two_body_solution[:, 0]))[0:100], color="orange")
-    plt.title("Fourier Transform of X Position")
-
-    plt.show()
-
-    mark_peaks(one_body_solution, two_body_solution)
+    # mark_peaks(one_body_solution, two_body_solution)
     # plot_peak_width(two_body_solution, title)
 
     # store data regarding variation in states
