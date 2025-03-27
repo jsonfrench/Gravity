@@ -96,7 +96,7 @@ def get_yearly_error(theoretical, actual, years) -> np.array:
 # Define Constants
 G                   = 6.67 * 10 ** (-11)
 samples_per_time    = 128
-time_steps          = 500000
+time_steps          = 500000 * 0.1
 t                   = np.linspace(0, time_steps, time_steps*samples_per_time)
 freq                = np.fft.rfftfreq(len(t), 1/samples_per_time)  # frequencies to be used by the discrete fourier transform 
 
@@ -106,74 +106,116 @@ IVP = samples.decreasing_dist[6]
 # IVP = samples.decreasing_dist[8]
 
 x1, y1, vx1, vy1, x2, y2, vx2, vy2, m0, m1, m2 = IVP
-actual_solution             = odeint(two_body, IVP[0:8], t, args=(G, IVP[8], IVP[9], IVP[10]))
-actual_solution_thetas      = np.arctan2(actual_solution[:,1], actual_solution[:,0])
-actual_solution_thetas_2    = np.arctan2(actual_solution[:,5], actual_solution[:,4])    # second body
-theoretical_solution        = odeint(one_body, [x1, y1, vx1, vy1], t, args=(G, m0))
-theoretical_solution_thetas = np.arctan2(theoretical_solution[:,1], theoretical_solution[:,0])
-index_max                   = time_steps #* samples_per_time
-min_frequency               = 0 #40
-max_frequency               = 100 
+actual_solution         = odeint(two_body, IVP[0:8], t, args=(G, IVP[8], IVP[9], IVP[10]))
+actual_thetas           = (np.arctan2(actual_solution[:,1], actual_solution[:,0]), np.arctan2(actual_solution[:,5], actual_solution[:,4])) # (first body, second body)
+theoretical_solution    = odeint(one_body, [x1, y1, vx1, vy1], t, args=(G, m0))
+theoretical_thetas      = np.arctan2(theoretical_solution[:,1], theoretical_solution[:,0])
+index_max               = time_steps #* samples_per_time
+min_frequency           = 0 #40
+max_frequency           = 100 
 
 
 # ======== year length + L2 distance
+def plot_year_length_analysis(is_actual, remove_offset=True) -> None:
 
-years = get_years(actual_solution_thetas)
-year_lengths = get_year_lengths(years)
-yearly_dist = get_yearly_distance(actual_solution, years)[0]
-yearly_avg_dist = get_yearly_distance(actual_solution, years)[1]
+    if is_actual:   
+        years = get_years(actual_thetas[0]) 
+        yearly_dist = get_yearly_distance(actual_solution, years)[0]    # get distance between plantes if given actual orbit
+        yearly_avg_dist = get_yearly_distance(actual_solution, years)[1]
+    else: 
+        years = get_years(theoretical_thetas)
 
-bruh = plt.figure(figsize=(10,6))
+    year_lengths = get_year_lengths(years) 
 
-plt.subplot(2,2,1)
-plt.plot(np.linspace(2,len(years), len(years)-1), year_lengths)
-plt.title("Body 1 Year length")
-plt.ylabel("length of year")
-plt.xlabel("year")
+    if (remove_offset):
+        year_lengths -= year_lengths[0]   # remove dc offset to get usable fft data
 
-plt.subplot(2,2,3)
-plt.plot(np.linspace(2,len(yearly_avg_dist), len(yearly_avg_dist)), yearly_avg_dist, color="lime", label="average distance")
-plt.plot(np.linspace(2,len(yearly_dist), len(yearly_dist)), yearly_dist, color="green", label="new year distance")
-plt.title("L2 Distance per year")
-plt.ylabel("distance")
-plt.xlabel("year")
-plt.legend(loc="upper left")
+    bruh = plt.figure(figsize=(10,6))
 
-plt.subplot(2,2,(2,4))
-year_length_fft = np.abs(np.fft.rfft(year_lengths))
-year_freq = np.fft.rfftfreq(year_lengths.size, 1)
-min_freq = int(0*time_steps)
-max_freq = int(10*time_steps)
-plt.plot(year_freq[min_freq:max_freq], (year_length_fft/(year_length_fft.size/2))[min_freq:max_freq])
-plt.title("Year length fft")
-plt.ylabel("Amplitude")
-plt.xlabel("Frequency")
-plt.show()
+    plt.subplot(2,2,1) if  is_actual else plt.subplot(2,2,(1,3))
+    plt.plot(np.linspace(2,len(years), len(years)-1), year_lengths)
+    plt.title("Body 1 Year length")
+    plt.ylabel("length of year")
+    plt.xlabel("year")
+
+    plt.subplot(2,2,(2,4))
+    year_length_fft = np.abs(np.fft.rfft(year_lengths))
+    year_freq = np.fft.rfftfreq(year_lengths.size, 1)
+    min_freq = int(0*time_steps)
+    max_freq = int(10*time_steps)
+    plt.plot(year_freq[min_freq:max_freq], (year_length_fft/(year_length_fft.size/2))[min_freq:max_freq])
+    plt.title("Year length fft")
+    plt.ylabel("Amplitude")
+    plt.xlabel("Frequency")
+
+    if not is_actual:   #skip plotting distance data for theoretical orbit
+        plt.show()
+        return
+    
+    plt.subplot(2,2,3)
+    plt.plot(np.linspace(2,len(yearly_avg_dist), len(yearly_avg_dist)), yearly_avg_dist, color="lime", label="average distance")
+    plt.plot(np.linspace(2,len(yearly_dist), len(yearly_dist)), yearly_dist, color="green", label="new year distance")
+    plt.title("L2 Distance per year")
+    plt.ylabel("distance")
+    plt.xlabel("year")
+    plt.legend(loc="upper left")
+    plt.show()
+
+# ================ Body 1 year lengths vs Body 2 year lengths
+def plot_year_length_comparison() -> None:
+
+    body_one_years = get_years(actual_thetas[0])
+    body_one_year_lengths = get_year_lengths(body_one_years)
+
+    body_two_years = get_years(actual_thetas[1])
+    body_two_year_lengths = get_year_lengths(body_two_years)
+
+    plt.subplot(2,1,1)
+    plt.plot(np.linspace(2,len(body_one_years), len(body_one_years)-1), body_one_year_lengths, ".-", color="blue")
+    plt.title("Body 1 Year length")
+    plt.ylabel("length of year")
+    plt.xlabel("year")
+    plt.xlim(0, max(body_one_years.size, body_two_years.size) + 1)
+
+    plt.subplot(2,1,2)
+    plt.plot(np.linspace(2,len(body_two_years), len(body_two_years)-1), body_two_year_lengths, ".-", color="orange")
+    plt.title("Body 2 Year length")
+    plt.ylabel("length of year")
+    plt.xlabel("year")
+    plt.xlim(0, max(body_one_years.size, body_two_years.size) + 1)
+
+    plt.show()
 
 # =========== 3d plot stuff
+def plot_3d_fft_spectrum() -> None:
 
-# max_circular_dist = 2*IVP[4] - (IVP[4]-IVP[0])
+    max_circular_dist = 2*IVP[4] - (IVP[4]-IVP[0])
 
-# ax = plt.figure().add_subplot(projection='3d')
+    ax = plt.figure().add_subplot(projection='3d')
 
-# z_resolution = 100
-# increment = time_steps * samples_per_time // z_resolution
-# for i in range(z_resolution):
-#     # print(f"plotting {i+1}/{z_resolution}")
-#     x = freq[min_frequency:max_frequency]
-#     y =  np.abs(np.fft.rfft(actual_solution[:, 0][:increment * (i+1)]))[min_frequency:max_frequency]
+    years = get_years(actual_thetas[0])
 
-#     slice_distance = orbital_distance(actual_solution, (increment * (i+1)-1)) # L2 Distance at time value corresponding to slice
-#     normalized_color = int(slice_distance / max_circular_dist * 255)   # converts value of 0-L2_max to 0-255
+    z_resolution = 300
+    increment = time_steps * samples_per_time // z_resolution
+    for i in range(years.size):
+        # print(f"plotting {i+1}/{z_resolution}")
+        x = freq[min_frequency:max_frequency]
+        y =  np.abs(np.fft.rfft(actual_solution[:, 0][:int(years[i])]))[min_frequency:max_frequency]
 
-#     # ax.plot(x, y, zs=i, zdir='x', color=mpl.colormaps['viridis'].colors[int((255/z_resolution) * (i+1))]) # gradient
-#     ax.plot(x, y, zs=i, zdir='x', color=mpl.colormaps['viridis'].colors[normalized_color])
+        slice_distance = orbital_distance(actual_solution, int(years[i])) # L2 Distance at time value corresponding to slice
+        normalized_color = int(slice_distance / max_circular_dist * 255)   # converts value of 0-L2_max to 0-255
 
-#     print(f"plotting {i+1}/{z_resolution} ... time {increment * (i+1)} slice_distance:{slice_distance} -> {normalized_color}")
+        # ax.plot(x, y, zs=i, zdir='x', color=mpl.colormaps['viridis'].colors[int((255/z_resolution) * (i+1))]) # gradient
+        ax.plot(x, y, zs=i, zdir='x', color=mpl.colormaps['viridis'].colors[normalized_color])
 
-# ax.set_xlabel('Time')
-# ax.set_ylabel('Frequency')
-# ax.set_zlabel('Amplitude')
-# ax.view_init(elev=20., azim=-35, roll=0)
-# plt.show()
+        print(f"plotting {i+1}/{z_resolution} ... time {years[i]} slice_distance:{slice_distance} -> {normalized_color}")
 
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Frequency')
+    ax.set_zlabel('Amplitude')
+    ax.view_init(elev=20., azim=-35, roll=0)
+    plt.show()
+
+# plot_year_length_analysis(is_actual=True)
+plot_year_length_comparison()
+# plot_3d_fft_spectrum()
