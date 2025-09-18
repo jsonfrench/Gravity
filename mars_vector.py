@@ -366,6 +366,8 @@ Fy_sun_theoretical_norm = Fy_sun_theoretical / F_net_mag
 Fx_mars_theoretical =  Fx_net - Fx_sun_theoretical
 Fy_mars_theoretical =  Fy_net - Fy_sun_theoretical
 F_mars_theoretical_mag = np.sqrt(Fx_mars_theoretical**2 + Fy_mars_theoretical**2)
+Fx_mars_theoretical_norm =  (Fx_net - Fx_sun_theoretical) / F_mars_theoretical_mag
+Fy_mars_theoretical_norm =  (Fy_net - Fy_sun_theoretical) / F_mars_theoretical_mag
 
 
 '''
@@ -443,6 +445,8 @@ def plot_everything():
     F_mars_vector, = ax_orbit.plot([x1s[0],x1s[0]+Fx_mars_norm[0]*max_range],[y1s[0], y1s[0]+Fy_mars_norm[0]*max_range], color="red")
     F_sun_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Fx_sun_norm[0]*max_range], [y1s[0], y1s[0]+Fy_sun_norm[0]*max_range],  color = "yellow")
     F_net_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Fx_net_norm[0]*max_range], [y1s[0], y1s[0]+Fy_net_norm[0]*max_range],  color = "orange")
+    F_sun_theoretical_vector,   = ax_orbit.plot([x1s[0],x1s[0]+Fx_sun_theoretical_norm[0]*max_range], [y1s[0], y1s[0]+Fy_sun_theoretical_norm[0]*max_range],  color = "green")
+    F_mars_theoretical_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Fx_mars_theoretical_norm[0]*max_range], [y1s[0], y1s[0]+Fy_mars_theoretical_norm[0]*max_range],  color = "purple")
 
     print(f"mars vector: {Fx_mars_norm[0]*max_range}, {Fy_mars_norm[0]*max_range}")
     print(f"mars: {x1s[0]}, {y1s[0]}")
@@ -487,6 +491,8 @@ def plot_everything():
         F_sun_vector.set_data ([x1s[idx],x1s[idx]+Fx_sun_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_sun_norm[idx]*max_range])
         F_mars_vector.set_data([x1s[idx],x1s[idx]+Fx_mars_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_mars_norm[idx]*max_range])
         F_net_vector.set_data ([x1s[idx],x1s[idx]+Fx_net_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_net_norm[idx]*max_range])
+        F_sun_theoretical_vector.set_data([x1s[idx],x1s[idx]+Fx_sun_theoretical_norm[idx]*max_range], [y1s[idx], y1s[idx]+Fy_sun_theoretical_norm[idx]*max_range])
+        F_mars_theoretical_vector.set_data([x1s[idx],x1s[idx]+Fx_mars_theoretical_norm[idx]*max_range], [y1s[idx], y1s[idx]+Fy_mars_theoretical_norm[idx]*max_range])
 
         # Update text box
         time_text.set_val(f"{val:.2f}")
