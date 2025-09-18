@@ -359,9 +359,13 @@ Fy_net_norm = Fy_net / F_net_mag
 
 Fx_sun_theoretical = Ax_sun_theoretical * m1
 Fy_sun_theoretical = Ay_sun_theoretical * m1
+F_sun_theoretical_mag = np.sqrt(Fx_sun_theoretical**2 + Fy_sun_theoretical**2)
+Fx_sun_theoretical_norm = Fx_sun_theoretical / F_net_mag 
+Fy_sun_theoretical_norm = Fy_sun_theoretical / F_net_mag 
 
 Fx_mars_theoretical =  Fx_net - Fx_sun_theoretical
 Fy_mars_theoretical =  Fy_net - Fy_sun_theoretical
+F_mars_theoretical_mag = np.sqrt(Fx_mars_theoretical**2 + Fy_mars_theoretical**2)
 
 
 '''
@@ -440,22 +444,17 @@ def plot_everything():
     F_sun_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Fx_sun_norm[0]*max_range], [y1s[0], y1s[0]+Fy_sun_norm[0]*max_range],  color = "yellow")
     F_net_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Fx_net_norm[0]*max_range], [y1s[0], y1s[0]+Fy_net_norm[0]*max_range],  color = "orange")
 
-    # F_mars_vector = ax_orbit.plot(Fx_mars_norm[0]*max_range, Fy_mars_norm[0]*max_range, markersize = 18, label="mars vector")
-    # F_sun_vector = ax_orbit.plot(Fx_sun_norm[0]*max_range, Fy_sun_norm[0]*max_range)
-    # F_net_vector = ax_orbit.plot(Fx_net_norm[0]*max_range, Fy_net_norm[0]*max_range)
-
     print(f"mars vector: {Fx_mars_norm[0]*max_range}, {Fy_mars_norm[0]*max_range}")
     print(f"mars: {x1s[0]}, {y1s[0]}")
 
     ax_orbit.set_aspect('equal')
-    # ax_orbit.set_xlim(-1.2 * max_range, 1.2 * max_range)
-    # ax_orbit.set_ylim(-1.2 * max_range, 1.2 * max_range)
+    ax_orbit.set_xlim(-1.2 * max_range, 1.2 * max_range)
+    ax_orbit.set_ylim(-1.2 * max_range, 1.2 * max_range)
     ax_orbit.set_xlabel("x position (m)")
     ax_orbit.set_ylabel("y position (m)")
     ax_orbit.set_title(f"Planetary Orbits E: {angleE * 180/np.pi :2f} M: {angleM * 180/np.pi :2f}")
     ax_orbit.grid(True)
     #ax_orbit.legend()
-
 
     # === Slider and TextBox ===
     slider_ax = plt.axes([0.2, 0.12, 0.6, 0.03])
@@ -482,18 +481,12 @@ def plot_everything():
         idx = min(int(val / (t[1] - t[0])), len(x1s) - 1)
 
         # Update orbit markers
-        # earth_marker.set_data([x1s[idx]], [y1s[idx]])
-        # mars_marker.set_data([x2s[idx]], [y2s[idx]])
         earth_marker.set_data([x1s[idx]], [y1s[idx]])
         mars_marker.set_data([x2s[idx]], [y2s[idx]])
 
-        F_mars_vector.set_data([x1s[idx],x1s[idx]+Fx_mars[idx]],[y1s[idx], y1s[idx]+Fy_mars[idx]])
-        F_sun_vector.set_data([x1s[idx],x1s[idx]+Fx_sun[idx]],[y1s[idx], y1s[idx]+Fy_sun[idx]])
-        F_net_vector.set_data([x1s[idx],x1s[idx]+Fx_net[idx]],[y1s[idx], y1s[idx]+Fy_net[idx]])
-
-        # F_mars_vector.set_data(Fx_mars[idx],Fy_mars[idx])
-        # F_sun_vector.set_data(Fx_sun[idx],Fy_sun[idx])
-        # F_net_vector.set_data(Fx_net[idx],Fy_net[idx])
+        F_sun_vector.set_data ([x1s[idx],x1s[idx]+Fx_sun_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_sun_norm[idx]*max_range])
+        F_mars_vector.set_data([x1s[idx],x1s[idx]+Fx_mars_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_mars_norm[idx]*max_range])
+        F_net_vector.set_data ([x1s[idx],x1s[idx]+Fx_net_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_net_norm[idx]*max_range])
 
         # Update text box
         time_text.set_val(f"{val:.2f}")
