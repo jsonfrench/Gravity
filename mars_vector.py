@@ -131,298 +131,141 @@ def symplectic_integrate_one_body(IVP, dt, steps, M, m):
 
     return solution, accelerations
 
-angle_guess_lines = []
+# Two body system parameters
+M = 1.989e30  # mass of central body (Sun) 1.989e30 kg
+m1 = 5.972e24 # mass of body 1 (Earth) 5.972e24 kg
+m2 = 6.39e23  # mass of body 2 (Mars) 6.39e23 kg
+angleE = 0 * (np.pi/180)           # Earth initial angle 
+rad1 = 1.5e11                      # Earth initial distance 
+x1 = rad1 * np.cos(angleE)         # Earth initial x-position (~1 AU)
+y1 = rad1 * np.sin(angleE)         # Earth initial y-position 
+r1 = np.sqrt(x1**2 + y1 **2)       # Earth initial distance from origin (redundant) 
+velE =  np.sqrt(abs(G * M/ rad1))  # Earth initial velocity 
+vx1 = velE * -np.sin(angleE)       # Earth initial velocity in x direction
+vy1 = velE * np.cos(angleE)        # Earth initial velocity in y direction
+angleM = 52 * (np.pi/180)       # Mars initial angle 
+rad2 = 2.28e11                  # Mars initial distance 
+x2 = rad2*np.cos(angleM)        # Mars initial x-position 
+y2 = rad2*np.sin(angleM)        # Mars initial y-position 
+r2 = np.sqrt(x2**2 + y2 **2)    # Mars initial distance from origin (redundant) 
+velM = np.sqrt(abs(G * M/rad2)) # Mars initial velocity 
+vx2 =velM * -np.sin(angleM)     # Mars initial velocity in x direction
+vy2 = velM * np.cos(angleM)     # Mars initial velocity in y direction
 
-def draw_user_angle(theta_deg_input):
+T_earth_theoretical = np.sqrt((4*np.pi**2 * r1 **3) / (G * M)) /  3.154e+7 # Earth orbtial period (1 year)
+T_mars_theoretical = np.sqrt((4*np.pi**2 * r2 **3) / (G * M)) /  3.154e+7  # Mars orbital period
 
-    global angle_guess_lines
+# Inital conditions for each simulation
+IVP_2body = [x1, y1, vx1, vy1, x2, y2, vx2, vy2 ] # Two- body intial conditions
+IVP_Earth = [x1, y1, vx1, vy1] # One-body Earth intial conditions
+IVP_Mars  = [x2, y2, vx2, vy2 ] # One-body Mars intial conditions
 
-    for line in angle_guess_lines:
-        line.remove()
-    angle_guess_lines.clear()
-
-    idx = min(int(time_slider.val / (t[1] - t[0])), len(x1s) - 1)
-
-    ex, ey = x1s[idx], y1s[idx]
-    vx, vy = vx1s[idx], vy1s[idx]
-    vel_norm = np.hypot(vx, vy)
-    vx_unit, vy_unit = vx / vel_norm, vy / vel_norm
-
-    for offset in [-0.5 * fov, 0, 0.5 * fov]:
-        theta_rad = np.radians(theta_deg_input + offset)
-        cos_theta, sin_theta = np.cos(theta_rad), np.sin(theta_rad)
-        dx = cos_theta * vx_unit - sin_theta * vy_unit
-        dy = sin_theta * vx_unit + cos_theta * vy_unit
-        length = 3e11
-        x_end = ex + dx * length
-        y_end = ey + dy * length
-        line, = ax_orbit.plot([ex, x_end], [ey, y_end], 'm--', linewidth=1)
-        angle_guess_lines.append(line)
-
-    fig.canvas.draw_idle()
-
-def draw_acceleration(diff_acc_x, diff_acc_y,xE, yE):
-    idx = min(int(time_slider.val / (t[1] - t[0])), len(x1s) - 1)
-    dx, dy = diff_acc_x[idx], diff_acc_y[idx]
-    ex, ey = x1s[idx], y1s[idx]
-    length = 1
-    x_end = dx * length
-    y_end = dy * length
-    line, = ax_orbit.plot([ex, x_end], [ey, y_end], 'm', linewidth=1)
-
-
-# -------------------- Example Usage ----------------------------
-
-# Masses in kilograms
-M = 1.989e30 # mass of the central body, this position is assumed to be (0,0) (Sun)
-m1 = 5.972e24 # mass of secondary body 1 (Earth) 5.972e24
-m2 = 6.39e23  # mass of secondary body 2 (Mars) 6.39e23
-
-# Initial positions (meters) and velocities (meters per second)
-
-angleE = 0 * (np.pi/180)
-rad1 = 1.5e11
-
-x1 = rad1 * np.cos(angleE)  # Earth initial x-position (~1 AU)
-y1 = rad1 * np.sin(angleE)
-r1 = np.sqrt(x1**2 + y1 **2)
-
-velE =  np.sqrt(abs(G * M/ rad1))
-vx1 = velE * -np.sin(angleE) # velocity is purley tangential
-vy1 = velE * np.cos(angleE) # velocity is set to ensure intially ciruclar motion
-
-angleM = 52 * (np.pi/180)
-rad2 = 2.28e11
-
-x2 = rad2*np.cos(angleM)
-y2 = rad2*np.sin(angleM)
-r2 = np.sqrt(x2**2 + y2 **2)
-
-velM = np.sqrt(abs(G * M/rad2))
-vx2 =velM * -np.sin(angleM) # velocity is purley tangential
-vy2 = velM * np.cos(angleM) # velocity is set to ensure intially ciruclar motion
-
-# Orbital Period
-T_earth_theoretical = np.sqrt((4*np.pi**2 * r1 **3) / (G * M)) /  3.154e+7
-T_mars_theoretical = np.sqrt((4*np.pi**2 * r2 **3) / (G * M)) /  3.154e+7
-
-# Combine initial conditions into arrays for integrators
-IVP_2body= [x1, y1, vx1, vy1, x2, y2, vx2, vy2 ] # set Two- body intial conditions
-IVP_Earth= [x1, y1, vx1, vy1] # set One-body Earth intial conditions
-IVP_Mars = [x2, y2, vx2, vy2 ] # set One-body Mars intial conditions
-
-# Time
-dt = (60 ** 2)*24  # time step value (duration of each time step in seconds), initall set to 1 day
-total_time = 100 # in years
-total_time_seconds = total_time * 31556952
-steps = int(total_time_seconds / dt)
-orbital_period_earth = 2* np.pi* np.sqrt((rad1**3)/(G * M))
-delay_time = 0.25 * orbital_period_earth
-delay_step = int(delay_time/dt)
+# Time information for the simulation
+dt = (60 ** 2)*24  # time step value (duration of each time step in seconds), inital set to 1 day
+total_time = 100 # amount of time to run the simulation for (in years)
+total_time_seconds = total_time * 31556952 # total simulation time (in seconds)
+steps = int(total_time_seconds / dt) # number of time steps to run the simulation for 
+orbital_period_earth = 2* np.pi* np.sqrt((rad1**3)/(G * M)) 
+delay_time = 0.25 * orbital_period_earth    # Ignore physics for a quarter year (workaround) 
+delay_step = int(delay_time/dt) # Number of time steps to ingnore physics for 
+t = np.arange(steps) * dt / (60*60*24*365.25)   # years for the x-axis
 
 # Run the simulations
 sol_2body, acc_2body = symplectic_integrate_two_body(IVP_2body, dt, steps, M, m1, m2, delay_step)
 sol_Earth, acc_1bodyE = symplectic_integrate_one_body(IVP_Earth, dt, steps, M, m1)
 sol_Mars, acc_1bodyM = symplectic_integrate_one_body(IVP_Mars, dt, steps, M, m2)
 
-# Plot Orbits (includes graviaitional relationship between the two secondary bodies)
+# Extract simulation data for plotting and computing force vectors 
+x1s, y1s, vx1s, vy1s = sol_2body[:, 0], sol_2body[:, 1], sol_2body[:, 2], sol_2body[:, 3] # Two body Earth positions and velocities
+x2s, y2s, vx2s, vy2s = sol_2body[:, 4], sol_2body[:, 5], sol_2body[:, 6], sol_2body[:, 7] # Two body Mars positions and velocities
+ax1, ay1, ax2, ay2 = acc_2body[:,0],acc_2body[:,1],acc_2body[:,2],acc_2body[:,3] # Two body Earth acceleration and mars acceleration
+xE, yE, vxE, vyE = sol_Earth[:,0], sol_Earth[:,1], sol_Earth[:,2], sol_Earth[:,3] # One body earth positions and velocities
+xM, yM, vxM, vyM = sol_Mars[:,0], sol_Mars[:,1], sol_Mars[:,2], sol_Mars[:,3]  # One body Mars positions and velocities 
+axE, ayE = acc_1bodyE[:,0],acc_1bodyE[:,1] # One body Earth accelerations
+axM, ayM = acc_1bodyM[:,0],acc_1bodyM[:,1] # One body Mars accelerations
+r1s = np.sqrt(x1s**2 + y1s**2) # distances between Earth and Sun
+r2s = np.sqrt(x2s**2 + y2s**2) # distances between Mars and Sun
+ds= np.sqrt((x2s - x1s)**2 + (y2s - y1s)**2) # distances between Earth and Mars
 
-# Extract Positions for plotting
-x1s, y1s, vx1s, vy1s = sol_2body[:, 0], sol_2body[:, 1], sol_2body[:, 2], sol_2body[:, 3] # two body Earth
-x2s, y2s, vx2s, vy2s = sol_2body[:, 4], sol_2body[:, 5], sol_2body[:, 6], sol_2body[:, 7] # two body Mars
-ax1, ay1, ax2, ay2 = acc_2body[:,0],acc_2body[:,1],acc_2body[:,2],acc_2body[:,3]
-
-xE, yE, vxE, vyE = sol_Earth[:,0], sol_Earth[:,1], sol_Earth[:,2], sol_Earth[:,3] # one body Earth
-xM, yM, vxM, vyM = sol_Mars[:,0], sol_Mars[:,1], sol_Mars[:,2], sol_Mars[:,3]  # one body Mars
-axE, ayE = acc_1bodyE[:,0],acc_1bodyE[:,1]
-
-# Plot Orbital Divergence
-diff_Earth = np.hypot(x1s - xE, y1s - yE)
-diff_Mars =  np.hypot(x2s - xM, y2s - yM)
-diff_acc_x, diff_acc_y = axE - ax1, ayE- ay1
-
-t = np.arange(steps) * dt / (60*60*24*365.25)   # years for the x-axis
-
-# Line up the data
-slopeE, interceptE = np.polyfit(t,diff_Earth,1)
-best_fit_lineE = slopeE * t + interceptE
-
-slopeM, interceptM= np.polyfit(t,diff_Mars,1)
-best_fit_lineM = slopeM * t + interceptM
-
-adjustedE = diff_Earth - best_fit_lineE
-adjustedM = diff_Mars - best_fit_lineM
-
-vxE, vyE = vx1s, vy1s
-
-dx = x2s - x1s
-dy = y2s - y1s
-
-# Dot and cross products
-dot = (vxE * dx) + (vyE * dy)
-cross =(vxE * dy) - (vyE * dx)  # scalar 2D cross product
-
-# Angle in radians (signed)
-theta_rad = np.arctan2(cross, dot)
-
-# Convert to degrees
-theta_deg = np.degrees(theta_rad)
-
-angle_ahead = np.rad2deg(np.arctan2(y2s,x2s) - np.arctan2(y1s,x1s))
-
-
-
-
-
-# Cycle Time
-yf = rfft(adjustedE)
-xf = rfftfreq(len(t),d =(t[1]-t[0]))
-peaks_fft, _ = find_peaks(np.abs(yf))
-cuttoff = 10
-peak_freq_fft = xf[peaks_fft]
-peak_freq_fft_low = []
-peaks_fft_low = []
-
-'''
-for j in range(len(peak_freq_fft)):
-    if peak_freq_fft[j]< cuttoff:
-        peak_freq_fft_low.append(peak_freq_fft[j])
-        peaks_fft_low.append(peaks_fft[j])
-
-for i in range (len(peak_freq_fft_low)):
-    print(f"Freqeuncy = {peak_freq_fft_low[i]:.4f} Hz,  Amplitude = {np.abs(yf[peaks_fft_low[i]]):.4f}, Period = {1/peak_freq_fft_low[i]:.4f} years")
-'''
-
-cutoff = 10  # in Hz (1/year for your case)
-
-# Filter frequencies under cutoff
-mask = xf < cutoff
-xf_cut = xf[mask]
-yf_cut = np.abs(yf[mask])
-
-
-# Extract Positions for plotting
-x1s, y1s, vx1s, vy1s = sol_2body[:, 0], sol_2body[:, 1], sol_2body[:, 2], sol_2body[:, 3] # two body Earth
-x2s, y2s, vx2s, vy2s = sol_2body[:, 4], sol_2body[:, 5], sol_2body[:, 6], sol_2body[:, 7] # two body Mars
-ax1, ay1, ax2, ay2 = acc_2body[:,0],acc_2body[:,1],acc_2body[:,2],acc_2body[:,3]
-
-xE, yE, vxE, vyE = sol_Earth[:,0], sol_Earth[:,1], sol_Earth[:,2], sol_Earth[:,3] # one body Earth
-xM, yM, vxM, vyM = sol_Mars[:,0], sol_Mars[:,1], sol_Mars[:,2], sol_Mars[:,3]  # one body Mars
-axE, ayE = acc_1bodyE[:,0],acc_1bodyE[:,1]
-
-# Extra information for based on position information
-r1s = np.sqrt(x1s**2 + y1s**2) # distances between m1 and M
-r2s = np.sqrt(x2s**2 + y2s**2) # distances between m2 and M
-ds= np.sqrt((x2s - x1s)**2 + (y2s - y1s)**2) # distances between m1 and m2
-
-# acceleration of earth due to mars (two body simulation)
-Ax_mars = (G * m2 * (x2s - x1s) / ds**3)
+# Acceleration data for Earth
+Ax_mars = (G * m2 * (x2s - x1s) / ds**3) # Acceleration of Earth due to Mars (two body simulation)
 Ay_mars = (G * m2 * (y2s - y1s) / ds**3)
+A_mars_mag = np.sqrt(Ax_mars**2 + Ay_mars**2)
+Ax_mars_norm = Ax_mars / A_mars_mag
+Ay_mars_norm = Ay_mars / A_mars_mag
 
-# Acceleration of earth due to the sun (two body simulation)
-Ax_sun = -G * M * x1s / r1s**3
+Ax_sun = -G * M * x1s / r1s**3           # Acceleration of Earth due to the sun (two body simulation)
 Ay_sun = -G * M * y1s / r1s**3
+A_sun_mag = np.sqrt(Ax_sun**2 + Ay_sun**2)
+Ax_sun_norm = Ax_sun / A_sun_mag
+Ay_sun_norm = Ay_sun / A_sun_mag
 
-# Net acceleration of earth (two body simulation)
-Ax_net = ax1
-Ay_net = ay1
+Ax_net = Ax_mars + Ax_sun                  # Net acceleration on Earth (Computed using position information) 
+Ay_net = Ay_mars + Ay_sun                  # These should match with the accelerations the simulation returns
+A_net_mag = np.sqrt(Ax_net**2 + Ay_net**2)
+Ax_net_norm = Ax_net / A_net_mag
+Ay_net_norm = Ay_net / A_net_mag
 
-# Acceleration of earth due to the sun (one body simulation)
-Ax_sun_theoretical = axE
-Ay_sun_theoretical = ayE
+Ax_net_simulated = ax1                             # net_simulated acceleration of Earth (two body simulation)
+Ay_net_simulated = ay1
+A_net_simulated_mag = np.sqrt(Ax_net_simulated**2 + Ay_net_simulated**2)
+Ax_net_simulated_norm = Ax_net_simulated / A_net_simulated_mag
+Ay_net_simulated_norm = Ay_net_simulated / A_net_simulated_mag
 
-# Fnet = Fsun + Fmars
-# Fnet - Fsun = Fmars
-# Theorized mars vector given by Fnet equation
-Ax_mars_theoretical =  Ax_net - Ax_sun_theoretical
-Ay_mars_theoretical =  Ay_net - Ay_sun_theoretical
+Ax_mars_theoretical =  Ax_net - Ax_sun             # Hypothesized acceleration of mars given by Fnet equation
+Ay_mars_theoretical =  Ay_net - Ay_sun             # Fnet = Fsun + Fmars -> Fnet - Fsun = Fmars
+A_mars_theoretical_mag = np.sqrt(Ax_mars_theoretical**2 + Ay_mars_theoretical**2)
+Ax_mars_theoretical_norm = Ax_mars_theoretical / A_mars_theoretical_mag
+Ay_mars_theoretical_norm = Ay_mars_theoretical / A_mars_theoretical_mag
 
+Ax_mars_theoretical_sim =  Ax_net_simulated - Ax_sun             # Hypothesized acceleration of mars given by Fnet equation
+Ay_mars_theoretical_sim =  Ay_net_simulated - Ay_sun             # Fnet = Fsun + Fmars -> Fnet - Fsun = Fmars
+A_mars_theoretical_sim_mag = np.sqrt(Ax_mars_theoretical_sim**2 + Ay_mars_theoretical_sim**2)
+Ax_mars_theoretical_sim_norm = Ax_mars_theoretical_sim / A_mars_theoretical_sim_mag
+Ay_mars_theoretical_sim_norm = Ay_mars_theoretical_sim / A_mars_theoretical_sim_mag
 
 # Convert accelerations to forces
-Fx_mars = Ax_mars * m1 
+Fx_mars = Ax_mars * m1                   # Force of Mars on Earth (two body simulation) 
 Fy_mars = Ay_mars * m1 
 F_mars_mag = np.sqrt(Fx_mars**2 + Fy_mars**2)
 Fx_mars_norm = Fx_mars / F_mars_mag 
 Fy_mars_norm = Fy_mars / F_mars_mag 
 
-Fx_sun = Ax_sun * m1
+Fx_sun = Ax_sun * m1                     # Force of sun on Earth (two body simulation)
 Fy_sun = Ay_sun * m1
 F_sun_mag = np.sqrt(Fx_sun**2 + Fy_sun**2)
 Fx_sun_norm = Fx_sun / F_sun_mag 
 Fy_sun_norm = Fy_sun / F_sun_mag 
 
-Fx_net = Ax_net * m1
-Fy_net = Ay_net * m1
+Fx_net = Ax_net * m1                     # Net force on Earth (two body simulation)
+Fy_net = Ay_net * m1                     # Computed using position values
 F_net_mag = np.sqrt(Fx_net**2 + Fy_net**2)
 Fx_net_norm = Fx_net / F_net_mag 
 Fy_net_norm = Fy_net / F_net_mag 
 
-Fx_sun_theoretical = Ax_sun_theoretical * m1
-Fy_sun_theoretical = Ay_sun_theoretical * m1
-F_sun_theoretical_mag = np.sqrt(Fx_sun_theoretical**2 + Fy_sun_theoretical**2)
-Fx_sun_theoretical_norm = Fx_sun_theoretical / F_net_mag 
-Fy_sun_theoretical_norm = Fy_sun_theoretical / F_net_mag 
+Fx_net_simulated = Ax_net_simulated * m1                     # Net force on Earth (two body simulation)
+Fy_net_simulated = Ay_net_simulated * m1                     # Computed using simulation acceleration values
+F_net_simulated_mag = np.sqrt(Fx_net_simulated**2 + Fy_net_simulated**2)
+Fx_net_simulated_norm = Fx_net_simulated / F_net_simulated_mag 
+Fy_net_simulated_norm = Fy_net_simulated / F_net_simulated_mag 
 
-Fx_mars_theoretical =  Fx_net - Fx_sun_theoretical
-Fy_mars_theoretical =  Fy_net - Fy_sun_theoretical
+Fx_mars_theoretical =  Fx_net - Fx_sun                 # Hypothesized force of earth given Fnet equation 
+Fy_mars_theoretical =  Fy_net - Fy_sun                 # Uses two body simulation for F_sun
 F_mars_theoretical_mag = np.sqrt(Fx_mars_theoretical**2 + Fy_mars_theoretical**2)
-Fx_mars_theoretical_norm =  (Fx_net - Fx_sun_theoretical) / F_mars_theoretical_mag
-Fy_mars_theoretical_norm =  (Fy_net - Fy_sun_theoretical) / F_mars_theoretical_mag
+Fx_mars_theoretical_norm =  Fx_mars_theoretical / F_mars_theoretical_mag
+Fy_mars_theoretical_norm =  Fy_mars_theoretical / F_mars_theoretical_mag
 
+Fx_mars_theoretical_sim =  Fx_net_simulated - Fx_sun                 # Hypothesized force of earth given Fnet equation 
+Fy_mars_theoretical_sim =  Fy_net_simulated - Fy_sun                 # Uses two body simulation for F_sun
+F_mars_theoretical_sim_mag = np.sqrt(Fx_mars_theoretical_sim**2 + Fy_mars_theoretical_sim**2)
+Fx_mars_theoretical_sim_norm =  Fx_mars_theoretical_sim / F_mars_theoretical_sim_mag
+Fy_mars_theoretical_sim_norm =  Fy_mars_theoretical_sim / F_mars_theoretical_sim_mag
 
-'''
-# Plot FFT (low frequencies only)
-plt.figure(figsize=(8, 4))
-plt.plot(xf_cut, yf_cut, label='FFT of adjusted deviation')
-plt.xlabel("Frequency (1/year)")
-plt.ylabel("Amplitude")
-plt.title("FFT of Orbital Deviation (Frequencies < 1/year)")
-plt.grid(True)
+# Check calculated accelerations match returned simulation acceleration values
+print(f"Ax_net {Ax_net}, Ax_net_simulated {Ax_net_simulated}")
 
-plt.tight_layout()
-plt.show()
-'''
-
-# --- Find valleys (local minima) ---
-maxDeviationE = max(adjustedE)
-minDeviationE = min(adjustedE)
-maxDeviationM = max(adjustedM)
-
-peaks, _ = find_peaks(adjustedE)
-valleys, _ = find_peaks(-adjustedE)
-
-sig_peaks1 = []
-
-# We start from 1 and end at len(peaks) - 1 to avoid out-of-bounds
-for i in range(1, len(peaks) - 1):
-        prev_peak = peaks[i - 1]
-        curr_peak = peaks[i]
-        next_peak = peaks[i + 1]
-
-        if adjustedE[curr_peak] > adjustedE[prev_peak] and adjustedE[curr_peak] > adjustedE[next_peak]:
-         sig_peaks1.append(curr_peak)
-
-sig_peaks2 = []
-
-for j in range(1,len(sig_peaks1) - 1) :
-    prev_peak = sig_peaks1[j -1]
-    curr_peak = sig_peaks1[j]
-    next_peak = sig_peaks1[j+1]
-
-    if adjustedE[curr_peak] > adjustedE[prev_peak] and adjustedE[curr_peak] > adjustedE[next_peak]:
-        sig_peaks2.append(curr_peak)
-
-sig_peaks3 = []
-
-for k in range(1,len(sig_peaks2) - 1) :
-    prev_peak = sig_peaks2[k -1]
-    curr_peak = sig_peaks2[k]
-    next_peak = sig_peaks2[k+1]
-
-    if adjustedE[curr_peak] > adjustedE[prev_peak] and adjustedE[curr_peak] > adjustedE[next_peak]:
-        sig_peaks3.append(curr_peak)
-
-sig_peaks = sig_peaks2
+# Check if precision of acceleration values match the precision of force vectors
+print(f"Ax_net_norm {Ax_net_norm}, Fx_net_norm {Fx_net_norm}")
 
 def plot_everything():
 
@@ -442,18 +285,16 @@ def plot_everything():
 
     max_range = max(np.max(np.abs(x1s)), np.max(np.abs(x2s)))
 
-    F_mars_vector, = ax_orbit.plot([x1s[0],x1s[0]+Fx_mars_norm[0]*max_range],[y1s[0], y1s[0]+Fy_mars_norm[0]*max_range], color="red")
+    # F_mars_vector, = ax_orbit.plot([x1s[0],x1s[0]+Fx_mars_theoretical_norm[0]*max_range],[y1s[0], y1s[0]+Fy_mars_theoretical_norm[0]*max_range], color="red")
     F_sun_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Fx_sun_norm[0]*max_range], [y1s[0], y1s[0]+Fy_sun_norm[0]*max_range],  color = "yellow")
     F_net_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Fx_net_norm[0]*max_range], [y1s[0], y1s[0]+Fy_net_norm[0]*max_range],  color = "orange")
-    F_sun_theoretical_vector,   = ax_orbit.plot([x1s[0],x1s[0]+Fx_sun_theoretical_norm[0]*max_range], [y1s[0], y1s[0]+Fy_sun_theoretical_norm[0]*max_range],  color = "green")
     F_mars_theoretical_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Fx_mars_theoretical_norm[0]*max_range], [y1s[0], y1s[0]+Fy_mars_theoretical_norm[0]*max_range],  color = "purple")
-
-    print(f"mars vector: {Fx_mars_norm[0]*max_range}, {Fy_mars_norm[0]*max_range}")
-    print(f"mars: {x1s[0]}, {y1s[0]}")
+    # F_mars_theoretical_sim_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Fx_mars_theoretical_sim_norm[0]*max_range], [y1s[0], y1s[0]+Fy_mars_theoretical_sim_norm[0]*max_range],  color = "lime")
 
     ax_orbit.set_aspect('equal')
     ax_orbit.set_xlim(-1.2 * max_range, 1.2 * max_range)
     ax_orbit.set_ylim(-1.2 * max_range, 1.2 * max_range)
+    max_range = max(np.max(np.abs(x1s)), np.max(np.abs(x2s)))
     ax_orbit.set_xlabel("x position (m)")
     ax_orbit.set_ylabel("y position (m)")
     ax_orbit.set_title(f"Planetary Orbits E: {angleE * 180/np.pi :2f} M: {angleM * 180/np.pi :2f}")
@@ -477,9 +318,6 @@ def plot_everything():
     fov_input_ax = plt.axes([0.16, 0.01, 0.1, 0.04])
     fov_textbox = TextBox(fov_input_ax, '', initial="0.0")
 
-    # print(f"x1s: {len(x1s)}")
-    # print(len(mars_marker))
-
     # === Update Function ===
     def update(val):
         idx = min(int(val / (t[1] - t[0])), len(x1s) - 1)
@@ -488,11 +326,11 @@ def plot_everything():
         earth_marker.set_data([x1s[idx]], [y1s[idx]])
         mars_marker.set_data([x2s[idx]], [y2s[idx]])
 
+        # F_mars_vector.set_data([x1s[idx],x1s[idx]+Fx_mars_theoretical_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_mars_theoretical_norm[idx]*max_range])
         F_sun_vector.set_data ([x1s[idx],x1s[idx]+Fx_sun_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_sun_norm[idx]*max_range])
-        F_mars_vector.set_data([x1s[idx],x1s[idx]+Fx_mars_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_mars_norm[idx]*max_range])
         F_net_vector.set_data ([x1s[idx],x1s[idx]+Fx_net_norm[idx]*max_range],[y1s[idx], y1s[idx]+Fy_net_norm[idx]*max_range])
-        F_sun_theoretical_vector.set_data([x1s[idx],x1s[idx]+Fx_sun_theoretical_norm[idx]*max_range], [y1s[idx], y1s[idx]+Fy_sun_theoretical_norm[idx]*max_range])
-        F_mars_theoretical_vector.set_data([x1s[idx],x1s[idx]+Fx_mars_theoretical_norm[idx]*max_range], [y1s[idx], y1s[idx]+Fy_mars_theoretical_norm[idx]*max_range])
+        F_mars_theoretical_vector.set_data([x1s[idx],x1s[idx]+Fx_mars_theoretical_norm[idx]*max_range], [y1s[idx], y1s[idx]+Fy_mars_theoretical_norm[idx]*max_range])        
+        # F_mars_theoretical_sim_vector.set_data([x1s[idx],x1s[idx]+Fx_mars_theoretical_sim_norm[idx]*max_range], [y1s[idx], y1s[idx]+Fy_mars_theoretical_sim_norm[idx]*max_range])        
 
         # Update text box
         time_text.set_val(f"{val:.2f}")
@@ -544,8 +382,6 @@ def plot_everything():
         angle_toggle_button.label.set_text('Show Angles' if not angle_visible[0] else 'Hide Angles')
         fig.canvas.draw_idle()
 
-
-
     # Create timer
     timer = fig.canvas.new_timer(interval=timer_interval)
     timer.add_callback(advance_slider)
@@ -572,45 +408,12 @@ def plot_everything():
     fov = 5.0
     last_angle = 0.0
 
-    def submit_angle(text):
-        global last_angle, fov
-        try:
-            theta_deg_input = float(text)
-            last_angle = theta_deg_input
-            # Use the current fov value to draw
-            draw_user_angle(theta_deg_input)
-            draw_acceleration(diff_acc_x, diff_acc_y, xE, yE)
-        except ValueError:
-            pass
-
-    def submit_fov(text):
-        global fov, last_angle
-        try:
-            fov_input = float(text)
-            if fov_input >= 0:
-                fov = fov_input
-                # Redraw with current angle and updated fov
-                draw_user_angle(last_angle)
-        except ValueError:
-            pass
-
-
     toggle_button.on_clicked(toggle_mars)
     angle_toggle_button.on_clicked(toggle_angle)
-    angle_textbox.on_submit(submit_angle)
-    fov_textbox.on_submit(submit_fov)
 
     plt.show()
 
     # Initialize plot
     update(0)
 
-print(f"m1: {m1} \nm2: {m2} \nM: {M}")
-print(f"Fmars: {Fx_mars[0]},{Fy_mars[0]} Amars: {Ax_mars[0]},{Ay_mars[0]} ")
-print(f"Fsun:  {Fx_sun[0]},{Fy_sun[0]}   Asun:  {Ax_sun[0]},{Ay_sun[0]} ")
-print(f"Fnet:  {Fx_net[0]},{Fy_net[0]}   Anet:  {Ax_net[0]},{Ay_net[0]} ")
-
 plot_everything()
-
-# for i in range(len(Axsun)):
-#     print(f"{i}: Axsun - Axnet / Amx {Axnet2[i] - Axsun[i]} / {Amx[i]} - Aysun / Ayx {Aynet2[i] - Aysun[i]} / {Amy[i]}")
