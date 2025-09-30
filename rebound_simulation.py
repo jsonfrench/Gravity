@@ -94,7 +94,7 @@ G = 6.67430e-11 # gravitiaional constant in m^3 kg^-1 s^-2
 # Two body system parameters
 M = 1.989e30  # mass of central body (Sun) 1.989e30 kg
 m1 = 5.972e24 # mass of body 1 (Earth) 5.972e24 kg
-m2 = 6.39e23  # mass of body 2 (Mars) 6.39e23 kg
+m2 = 6.39e23 # mass of body 2 (Mars) 6.39e23 kg
 angleE = 0 * (np.pi/180)           # Earth initial angle 
 rad1 = 1.5e11                      # Earth initial distance 
 x1 = rad1 * np.cos(angleE)         # Earth initial x-position (~1 AU)
@@ -146,6 +146,9 @@ A_net_comp_mag = np.sqrt(Ax_net_comp**2 + Ay_net_comp**2) # These should match w
 Ax_net_approx, Ay_net_approx = eax_approx, eay_approx # Net acceleration on Earth (Approximated using position information) 
 A_net_approx_mag = np.sqrt(Ax_net_approx**2 + Ay_net_approx**2) # These should match with the accelerations the simulation returns
 
+Ax_mars_approx, Ay_mars_approx = Ax_net_approx - Ax_sun[:9998], Ay_net_approx - Ay_sun[:9998] # Net acceleration on Earth (Approximated using position information) 
+A_mars_approx_mag = np.sqrt(Ax_mars_approx**2 + Ay_mars_approx**2) # These should match with the accelerations the simulation returns
+
 Ax_mars_theoretical, Ay_mars_theoretical = Ax_net - Ax_sun, Ay_net - Ay_sun # Hypothesized acceleration of mars given by Fnet equation
 A_mars_theoretical_mag = np.sqrt(Ax_mars_theoretical**2 + Ay_mars_theoretical**2) # Fnet = Fsun + Fmars -> Fnet - Fsun = Fmars
 
@@ -177,8 +180,9 @@ def plot_everything():
     F_sun_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Ax_sun[0]/A_sun_mag[0]*max_range], [y1s[0], y1s[0]+Ay_sun[0]/A_sun_mag[0]*max_range],  color = "yellow")
     F_net_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Ax_net[0]/A_net_mag[0]*max_range], [y1s[0], y1s[0]+Ay_net[0]/A_net_mag[0]*max_range],  color = "orange")
     F_net_approx_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Ax_net_approx[0]/A_net_approx_mag[0]*max_range], [y1s[0], y1s[0]+Ay_net_approx[0]/A_net_approx_mag[0]*max_range],  color = "pink")
+    F_mars_approx_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Ax_mars_approx[0]/A_mars_approx_mag[0]*max_range], [y1s[0], y1s[0]+Ay_mars_approx[0]/A_mars_approx_mag[0]*max_range],  color = "green")
 #     F_net_comp_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Ax_net_comp[0]/A_net_comp_mag[0]*max_range], [y1s[0], y1s[0]+Ay_net_comp[0]/A_net_comp_mag[0]*max_range],  color = "blue", linewidth=4, alpha=0.5)
-#     F_mars_theoretical_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Ax_mars_theoretical[0]/A_mars_theoretical_mag[0]*max_range], [y1s[0], y1s[0]+Ay_mars_theoretical[0]/A_mars_theoretical_mag[0]*max_range],  color = "lime")
+    F_mars_theoretical_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Ax_mars_theoretical[0]/A_mars_theoretical_mag[0]*max_range], [y1s[0], y1s[0]+Ay_mars_theoretical[0]/A_mars_theoretical_mag[0]*max_range],  color = "lime")
 #     F_mars_derived_vector,  = ax_orbit.plot([x1s[0],x1s[0]+Ax_mars_derived[0]/A_mars_derived_mag[0]*max_range], [y1s[0], y1s[0]+Ay_mars_derived[0]/A_mars_derived_mag[0]*max_range],  color = "purple")
 
 #     max_range = max(np.max(np.abs(x1s)), np.max(np.abs(x2s))) * 200
@@ -228,8 +232,9 @@ def plot_everything():
         F_sun_vector.set_data([x1s[idx],x1s[idx]+Ax_sun[idx]/A_sun_mag[idx]*max_range], [y1s[idx], y1s[idx]+Ay_sun[idx]/A_sun_mag[idx]*max_range])
         F_net_vector.set_data([x1s[idx],x1s[idx]+Ax_net[idx]/A_net_mag[idx]*max_range], [y1s[idx], y1s[idx]+Ay_net[idx]/A_net_mag[idx]*max_range])
         F_net_approx_vector.set_data([x1s[idx],x1s[idx]+Ax_net_approx[idx]/A_net_approx_mag[idx]*max_range], [y1s[idx], y1s[idx]+Ay_net_approx[idx]/A_net_approx_mag[idx]*max_range])
+        F_mars_approx_vector.set_data([x1s[idx],x1s[idx]+Ax_mars_approx[idx]/A_mars_approx_mag[idx]*max_range], [y1s[idx], y1s[idx]+Ay_mars_approx[idx]/A_mars_approx_mag[idx]*max_range])
         # F_net_comp_vector.set_data([x1s[idx],x1s[idx]+Ax_net_comp[idx]/A_net_comp_mag[idx]*max_range], [y1s[idx], y1s[idx]+Ay_net_comp[idx]/A_net_comp_mag[idx]*max_range])
-        # F_mars_theoretical_vector.set_data([x1s[idx],x1s[idx]+Ax_mars_theoretical[idx]/A_mars_theoretical_mag[idx]*max_range], [y1s[idx], y1s[idx]+Ay_mars_theoretical[idx]/A_mars_theoretical_mag[idx]*max_range])
+        F_mars_theoretical_vector.set_data([x1s[idx],x1s[idx]+Ax_mars_theoretical[idx]/A_mars_theoretical_mag[idx]*max_range], [y1s[idx], y1s[idx]+Ay_mars_theoretical[idx]/A_mars_theoretical_mag[idx]*max_range])
         # F_mars_derived_vector.set_data([x1s[idx],x1s[idx]+Ax_mars_derived[idx]/A_mars_derived_mag[idx]*max_range], [y1s[idx], y1s[idx]+Ay_mars_derived[idx]/A_mars_derived_mag[idx]*max_range])
 
         # print(f"{idx}. Axnet: {Ax_net[idx]}, Axapprox: {Ax_net_approx[idx]}")
@@ -243,6 +248,8 @@ def plot_everything():
         # F_net_vector.set_data([x1s[idx],x1s[idx]+Ax_net[idx]*max_range], [y1s[idx], y1s[idx]+Ay_net[idx]*max_range])
         # F_net_comp_vector.set_data([x1s[idx],x1s[idx]+Ax_net_comp[idx]*max_range], [y1s[idx], y1s[idx]+Ay_net_comp[idx]*max_range])
         # F_mars_theoretical_vector.set_data([x1s[idx],x1s[idx]+Ax_mars_theoretical[idx]*max_range], [y1s[idx], y1s[idx]+Ay_mars_theoretical[idx]*max_range])
+
+        ax_orbit.set_title(f"Fnet: {A_net_mag[idx]}, Fsun: {A_sun_mag[idx]}")
 
         # Update text box
         time_text.set_val(f"{val:.2f}")
