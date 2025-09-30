@@ -1,0 +1,275 @@
+import rebound
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Button
+from matplotlib.widgets import Slider, TextBox
+import plotly.graph_objects as go
+
+sim = rebound.Simulation()
+
+sim.units = ('mearth', 'AU', 'day') # Set units to Earth mass, Astronomical Unit, and day
+Smass = 3.33e5 # Mass of the Sun in Earth masses
+Mmass = 0.107 # Mass of Mars in Earth masses
+years= 365.25 # Number of days in a year
+# print(sim.units)
+
+rebound.horizons.SSL_CONTEXT = 'unverified'
+
+sim.add(m=Smass) # Add a star with mass 1 solar mass
+sim.add(m=Mmass, a=1.524, e=0.0934) # Add Mars with given semi-major axis and eccentricity
+sim.add(m=1.0, a=1.0, e=0.0167) # Add Earth with given semi-major axis and eccentricity
+
+sim.move_to_com() # Move to center-of-mass frame
+
+G = sim.G # Gravitational constant in the chosen units
+
+#----Time Parameters----
+start = 0 # Start time in days
+stop = 10 * years # Total simulation time in days
+n_steps = int(stop) # Number of time steps (Currently set to 1 step per day)
+times = np.linspace(start, stop, n_steps) # Array of time points
+
+#----Arrays to store positions----
+x_pos = np.empty((len(sim.particles), n_steps)) # Creates an empty array for x positions size: Number of partcles x Number of time steps
+y_pos = np.empty((len(sim.particles), n_steps)) # Creates an empty array for y positions size: Number of partcles x Number of time steps
+
+for i, t in enumerate(times):
+    sim.integrate(t) # Integrate the simulation to time t
+    for j, p in enumerate(sim.particles):
+        x_pos[j, i] = p.x # Store x position of particle j at time step i
+        y_pos[j, i] = p.y # Store y position of particle j at time step i
+
+sun_x = x_pos[0, :] # X positions of the Sun
+sun_y = y_pos[0, :] # Y positions of the Sun
+mars_x = x_pos[1, :] # X positions of Mars
+mars_y = y_pos[1, :] # Y positions of Mars
+earth_x = x_pos[2, :] # X positions of Earth
+earth_y = y_pos[2, :] # Y positions of Earth
+
+#----Arrays to store velocities----
+x_vel = np.empty((len(sim.particles), n_steps)) # Creates an empty array for x velocities size: Number of partcles x Number of time steps
+y_vel = np.empty((len(sim.particles), n_steps)) # Creates an empty array for y velocities size: Number of partcles x Number of time steps
+
+for i, t in enumerate(times):
+    sim.integrate(t) # Integrate the simulation to time t
+    for j, p in enumerate(sim.particles):
+        x_vel[j, i] = p.vx # Store x velocity of particle j at time step i
+        y_vel[j, i] = p.vy # Store y velocity of particle j at time step i
+
+sun_vx = x_vel[0, :] # X velocities of the Sun
+sun_vy = y_vel[0, :] # Y velocities of the Sun
+mars_vx = x_vel[1, :] # X velocities of Mars
+mars_vy = y_vel[1, :] # Y velocities of Mars
+earth_vx = x_vel[2, :] # X velocities of Earth
+earth_vy = y_vel[2, :] # Y velocities of Earth
+
+#----Arrays to store accelerations----
+x_acc = np.empty((len(sim.particles), n_steps)) # Creates an empty array for x accelerations size: Number of partcles x Number of time steps
+y_acc = np.empty((len(sim.particles), n_steps)) # Creates an empty array for y accelerations size: Number of partcles x Number of time steps
+
+for i, t in enumerate(times):
+    sim.integrate(t) # Integrate the simulation to time t
+    for j, p in enumerate(sim.particles):
+        x_acc[j, i] = p.ax # Store x acceleration of particle j at time step i
+        y_acc[j, i] = p.ay # Store y acceleration of particle j at time step i
+
+sun_ax = x_acc[0, :] # X accelerations of the Sun
+sun_ay = y_acc[0, :] # Y accelerations of the Sun
+mars_ax = x_acc[1, :] # X accelerations of Mars
+mars_ay = y_acc[1, :] # Y accelerations of Mars
+earth_ax = x_acc[2, :] # X accelerations of Earth
+earth_ay = y_acc[2, :] # Y accelerations of Earth
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ds = np.sqrt((mars_x - earth_x)**2 + (mars_y - earth_y)**2) # Distance between Earth and Mars
+rs = np.sqrt(earth_x**2 + earth_y**2) # Distance between Earth
+
+A_net_x = earth_ax # Net acceleration on Earth in x direction
+A_net_y = earth_ay # Net acceleration on Earth in y direction
+
+A_to_mars_x = (G * Mmass * (mars_x - earth_x) / ds**3) # Acceleration on Earth due to Mars in x direction
+A_to_mars_y = (G * Mmass * (mars_y - earth_y) / ds**3) # Acceleration on Earth due to Mars in y direction
+
+A_to_sun_x = -G * Smass * earth_x / rs**3 # Acceleration on Earth due to Sun in x direction
+A_to_sun_y = -G * Smass * earth_y / rs**3 # Acceleration on Earth due to Sun in y direction
+
+A_net_calculated_x = A_to_mars_x + A_to_sun_x # Calculated net acceleration on Earth in x direction
+A_net_calculated_y = A_to_mars_y + A_to_sun_y # Calculated net acceleration on Earth in y direction
+
+A_net_approximated_x = earth_x
+
+#-----------------------------------------Interactive Plot-----------------------------------------
+
+t = times # Time array in days
+
+#----Create figure and 3 vertically stacked plots---
+fig, (ax_orbit) = plt.subplots(1, 1, figsize=(10, 12), sharex=False)
+plt.subplots_adjust(bottom=0.25, hspace=0.4)
+
+#----Top: Orbit Plot----
+ax_orbit.plot(earth_x, earth_y, label='Earth (2-body)', alpha=0.6)
+mars_orbit_line, = ax_orbit.plot(mars_x, mars_y, label='Mars (2-body)', alpha=0.6)
+ax_orbit.plot(0, 0, 'yo', label='Sun')
+earth_marker, = ax_orbit.plot([], [], 'bo', markersize=8, label='Earth')
+mars_marker, = ax_orbit.plot([], [], 'ro', markersize=8, label='Mars')
+
+ax_orbit.set_aspect('equal')
+max_range = max(np.max(np.abs(earth_x)), np.max(np.abs(mars_x)), np.max(np.abs(earth_y)), np.max(np.abs(mars_y)))
+ax_orbit.set_xlim(-1.2 * max_range, 1.2 * max_range)
+ax_orbit.set_ylim(-1.2 * max_range, 1.2 * max_range)
+ax_orbit.set_xlabel("x position (AU)")
+ax_orbit.set_ylabel("y position (AU)")
+ax_orbit.grid(True)
+#ax_orbit.legend()
+
+#----Slider and TextBox----
+slider_ax = plt.axes([0.2, 0.12, 0.6, 0.03])
+time_slider = Slider(slider_ax, 'Time (days)', 0, t[-1], valinit=0, valstep=0.01)
+
+text_ax = plt.axes([0.83, 0.12, 0.1, 0.03])
+time_text = TextBox(text_ax, '', initial="0.00")
+
+A_net_vector = None
+A_net_calculated_vector = None
+A_sun_calculated_vector = None
+A_mars_calculated_vector = None
+A_mars_rebound_vector = None
+A_net_approximated_x_vector = None
+
+#----Update Function----
+def update(val):
+    global A_net_vector, A_net_calculated_vector, A_sun_calculated_vector, A_mars_calculated_vector, A_mars_rebound_vector, A_net_approximated_x_vector
+
+    idx = min(int(val / (t[1] - t[0])), len(earth_x) - 1)
+
+    dt = t[idx] - t[idx-1]
+
+    ax = (earth_x[idx+1] - 2*earth_x[idx] + earth_x[idx-1]) / dt**2
+    ay = (earth_y[idx+1] - 2*earth_y[idx] + earth_y[idx-1]) / dt**2
+
+    mag = (ax**2 + ay**2)**0.5
+    ax_norm = ax / mag
+    ay_norm = ay / mag
+
+    mag2 = (A_to_sun_x[idx]**2 + A_to_sun_y[idx]**2)**0.5
+    ax_sun_norm = A_to_sun_x[idx+1]/mag2
+    ay_sun_norm = A_to_sun_y[idx+1]/mag2
+
+    mag3 = ( (ax - A_to_sun_x[idx])**2 + (ay - A_to_sun_y[idx])**2 )**0.5
+    ax_mars_norm = (ax-A_to_sun_x[idx])/mag3
+    ay_mars_norm = (ay-A_to_sun_y[idx])/mag3
+
+    scale_factor = 2 * 1e-11  # Adjust this factor to scale the vector appropriately
+    scale_factor2 = 1 * 1e-9
+
+    # Update orbit markers
+    earth_marker.set_data([earth_x[idx]], [earth_y[idx]])
+    mars_marker.set_data([mars_x[idx]], [mars_y[idx]])
+    
+    #Remove previous Fnet vector
+       #Remove previous Fnet vector
+    if A_net_vector is not None:
+        A_net_vector.remove()
+    if A_net_calculated_vector is not None:
+        A_net_calculated_vector.remove()
+    if A_sun_calculated_vector is not None:
+        A_sun_calculated_vector.remove()
+    if A_mars_calculated_vector is not None:
+        A_mars_calculated_vector.remove()
+    if A_mars_rebound_vector is not None:
+        A_mars_rebound_vector.remove()
+    if A_net_approximated_x_vector is not None:
+        A_net_approximated_x_vector.remove()
+
+    # Update Force Vector
+    # A_net_vector = ax_orbit.quiver(earth_x[idx], earth_y[idx], A_net_x[idx], A_net_y[idx], color='purple', scale=1e-10, label='Net Acceleration (Rebound)')
+    # A_net_calculated_vector = ax_orbit.quiver(earth_x[idx], earth_y[idx], A_net_calculated_x[idx], A_net_calculated_y[idx], color='Blue', scale=1e-10, label='Net Acceleration (Calculated)')
+    A_sun_calculated_vector = ax_orbit.quiver(earth_x[idx], earth_y[idx], ax_sun_norm * scale_factor, ay_sun_norm * scale_factor, color='Yellow', scale=1e-10, label='Acceleration due to Sun')
+    # A_mars_calculated_vector = ax_orbit.quiver(earth_x[idx], earth_y[idx], (A_net_calculated_x[idx] - A_to_sun_x[idx]), (A_net_calculated_y[idx] - A_to_sun_y[idx]), color='green', scale=1e-10, label='Acceleration due to Mars (Rebound)')
+    A_mars_rebound_vector = ax_orbit.quiver(earth_x[idx], earth_y[idx], (ax_norm - ax_sun_norm) * scale_factor2, (ay_norm - ay_sun_norm) * scale_factor2, color='red', scale=1e-10, label='Acceleration due to Mars (Calculated)')
+    A_net_approximated_x_vector = ax_orbit.quiver(earth_x[idx], earth_y[idx], ax_norm * scale_factor, ay_norm * scale_factor, color='orange', scale=1e-10, label='Net Acceleration (Finite Difference Approximation)')
+
+    # Update text box
+    time_text.set_val(f"{val:.2f}")
+
+    fig.canvas.draw_idle()
+
+#----TextBox Submit----
+def submit_text(text):
+    try:
+        val = float(text)
+        val = max(0, min(val, t[-1]))
+        time_slider.set_val(val)  # Triggers update
+    except ValueError:
+        pass
+
+
+#----Play Button----
+play_ax = plt.axes([0.4, 0.05, 0.1, 0.04])
+play_button = Button(play_ax, 'Play', hovercolor='0.975')
+
+# Play button for animation
+playing = [False]  # Use mutable object so we can modify it inside nested function
+
+def play(event):
+    playing[0] = not playing[0]
+    if playing[0]:
+        play_button.label.set_text('Pause')
+        timer.start()
+    else:
+        play_button.label.set_text('Play')
+        timer.stop()
+
+play_button.on_clicked(play)
+
+timer_interval = 50  # ~20 FPS
+
+# Function to advance the slider
+def advance_slider():
+    current_val = time_slider.val
+    new_val = current_val + 3 * (t[1] - t[0]) 
+    if new_val >= t[-1]:
+        timer.stop()
+        playing[0] = False
+        play_button.label.set_text('Play')
+    else:
+        time_slider.set_val(new_val)
+
+# Create timer 
+timer = fig.canvas.new_timer(interval=timer_interval)
+timer.add_callback(advance_slider)
+
+# Register callbacks
+time_slider.on_changed(update)
+time_text.on_submit(submit_text)
+
+toggle_ax = plt.axes([0.52, 0.05, 0.18, 0.04])
+toggle_button = Button(toggle_ax, 'Hide Mars', hovercolor='0.975')
+mars_visible = [True]  # Mutable flag
+
+#----Toggle Mars visibility----
+def toggle_mars(event):
+    mars_visible[0] = not mars_visible[0]
+    mars_marker.set_visible(mars_visible[0])
+    mars_orbit_line.set_visible(mars_visible[0])
+    toggle_button.label.set_text('Show Mars' if not mars_visible[0] else 'Hide Mars')
+    fig.canvas.draw_idle()
+
+toggle_button.on_clicked(toggle_mars)
+
+plt.show()
+update(0)
