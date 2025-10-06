@@ -1,0 +1,144 @@
+import rebound
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from matplotlib.widgets import Button, TextBox
+
+# === Setup Simulation ===
+sim = rebound.Simulation()
+sim.units = ('s', 'm', 'kg')
+sim.integrator = "ias15"
+
+G = 6.67430e-11  # SI units
+
+# Central + two orbiting masses (100-1-1 system)
+central_mass = 1.0
+sim.add(m=central_mass)  # index 0
+
+r1, r2 = 1.0, 2
+m1 = m2 = 1.0
+v1 = np.sqrt(G * central_mass / r1)
+v2 = np.sqrt(G * central_mass / r2)
+
+sim.add(m=m1, x=r1, y=0, vy=v1)  # index 1 (Earth-like)
+sim.add(m=m2, x=r2, y=0, vy=v2)  # index 2 (Mars-like)
+
+# === Precompute Orbits ===
+t_max = int(1e6)
+n_steps = int(1e4)
+times = np.linspace(0, t_max, n_steps)
+
+positions_0 = np.zeros((n_steps, 2))
+positions_1 = np.zeros((n_steps, 2))
+positions_2 = np.zeros((n_steps, 2))
+
+sim_copy = sim.copy()
+for i, t in enumerate(times):
+    sim_copy.integrate(t)
+    p0, p1, p2 = sim_copy.particles
+    positions_0[i] = (p0.x, p0.y)
+    positions_1[i] = (p1.x, p1.y)
+    positions_2[i] = (p2.x, p2.y)
+
+# === Approximate accelerations ===
+dt = times[1] - times[0]
+accel_earth_approx = np.zeros_like(positions_1)
+for i in range(2, n_steps):
+    accel_earth_approx[i] = (positions_1[i] - 2*positions_1[i-1] + positions_1[i-2]) / dt**2
+
+accel_sun = np.zeros_like(positions_1)
+for i in range(n_steps):
+    r_vec = positions_1[i] - positions_0[i]
+    r = np.linalg.norm(r_vec)
+    if r > 0:
+        accel_sun[i] = -G*central_mass * r_vec / r**3
+
+# Perturbation from Mars-like body
+accel_mars = accel_earth_approx - accel_sun  
+
+# === Plot Setup ===
+fig, ax = plt.subplots(figsize=(6, 6))
+plt.subplots_adjust(bottom=0.25)
+ax.set_xlim(-2.5, 2.5)
+ax.set_ylim(-2.5, 2.5)
+ax.set_aspect('equal')
+ax.grid(True)
+
+# Plot full orbits
+ax.plot(positions_1[:, 0], positions_1[:, 1], 'b-', alpha=0.5)
+ax.plot(positions_2[:, 0], positions_2[:, 1], 'r-', alpha=0.5)
+ax.plot(positions_0[:, 0], positions_0[:, 1], 'y-', alpha=0.5)
+
+# Moving markers
+marker_0, = ax.plot([], [], 'yo', markersize=8, label="Central Mass")
+marker_1, = ax.plot([], [], 'bo', markersize=5, label="Object 1 (Earth-like)")
+marker_2, = ax.plot([], [], 'ro', markersize=5, label="Object 2 (Mars-like)")
+
+# Empty list for arrow so we can remove/redraw
+perturb_arrow = []
+
+# === Animation State ===
+paused = [False]
+frame_idx = [0]
+
+def init():
+    marker_0.set_data([], [])
+    marker_1.set_data([], [])
+    marker_2.set_data([], [])
+    return marker_0, marker_1, marker_2
+
+def update(_):
+    if paused[0]:
+        return marker_0, marker_1, marker_2
+
+    i = frame_idx[0] % n_steps
+    marker_0.set_data([positions_0[i, 0]], [positions_0[i, 1]])
+    marker_1.set_data([positions_1[i, 0]], [positions_1[i, 1]])
+    marker_2.set_data([positions_2[i, 0]], [positions_2[i, 1]])
+
+    # Remove old arrow
+    for art in perturb_arrow:
+        art.remove()
+    perturb_arrow.clear()
+
+    # Draw new arrow (perturbation vector)
+    earth_pos = positions_1[i]
+    pert_vec = accel_mars[i]
+    scale = 1e10
+    arrow = ax.arrow(earth_pos[0], earth_pos[1],
+                     scale*pert_vec[0], scale*pert_vec[1],
+                     color="magenta", head_width=0.01, head_length=0.01)
+    perturb_arrow.append(arrow)
+
+    frame_idx[0] += 1
+    return marker_0, marker_1, marker_2, arrow
+
+ani = FuncAnimation(fig, update, init_func=init, interval=50, blit=False)
+
+# === Play/Pause Button ===
+ax_button = plt.axes([0.4, 0.1, 0.2, 0.075])
+button = Button(ax_button, 'Play/Pause')
+
+def toggle(event):
+    paused[0] = not paused[0]
+
+button.on_clicked(toggle)
+
+# === Textbox for Jump-to-Frame ===
+axbox = plt.axes([0.1, 0.1, 0.2, 0.075])
+text_box = TextBox(axbox, 'Jump to Frame:', initial="0")
+
+def jump_to_frame(text):
+    try:
+        idx = int(text)
+        if 0 <= idx < n_steps:
+            frame_idx[0] = idx
+            update(0)
+            fig.canvas.draw_idle()
+    except:
+        print("Invalid frame index")
+
+text_box.on_submit(jump_to_frame)
+
+ax.legend()
+plt.show()
