@@ -16,22 +16,25 @@ sim.integrator = "ias15"    # select an integration scheme for the solver
 
 sim.units = ("kg", "m", "s")    # define the units for the simulation
 
-sim.add(m=1.989e30)
-sim.add(m=5.972e24, a=1.5e11, e=0.0167)
-sim.add(m=6.39e23, a=2.28e11, e=0.0934)
+# sim.add(m=1.989e30)
+# sim.add(m=5.972e24, a=1.5e11, e=0.0167)
+# sim.add(m=6.39e23, a=2.28e11, e=0.0934)
 
-# sim.add(m=10)
-# sim.add(m=1, a=2, e=0.01)
-# sim.add(m=1, a=3, e=0.001)
+sim.add(m=10)
+sim.add(m=1, a=10, e=0.01)
+sim.add(m=1, a=12, e=0.001)
 
 print(f"particle 0 mass: {sim.particles[0].m}")
 
+day = 60 * 60 * 24
+week = day * 7
+year = day * 365.25
 
 start = 0
 stop = 365 * 3 * (60 * 60 * 24)  # length of time the simulatio runs for (seconds)
-steps = stop // (60 * 60 * 24)  # number of steps the simulation takes
-delta_time = stop / steps   # length of time step (seconds)
-time_space = np.linspace(start, stop, steps)
+delta_time = day  # length of time step (seconds)
+steps = stop // delta_time  # number of steps the simulation takes
+time_space = np.arange(start, stop, delta_time)
 speed = 1 # amount of time steps to jump forward at a time in the plot
 
 sx, sy, svx, svy, sax, say = [], [], [], [], [], [] 
