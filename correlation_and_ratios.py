@@ -9,21 +9,22 @@ sim = rebound.Simulation()
 sim.units = ('s', 'm', 'kg')
 sim.integrator = "ias15"
 
-G = 6.67430e-11  # gravitational constant
+G = 6.67430e-11
 
 # Contrived Sun–Earth–Mars system
-central_mass = 10.0
+central_mass = 300000.0
 sim.add(m=central_mass)   # Sun
-r1, r2 = 1.0, 1.2         # orbital radii
-m1 = m2 = 1.0
+r1, r2 = 1.0, 2
+m1 = 1.0
+m2 = 0.107
 v1 = np.sqrt(G * central_mass / r1)
 v2 = np.sqrt(G * central_mass / r2)
 sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
 sim.add(m=m2, x=r2, y=0, vy=v2)  # Mars
 
 # === Time Setup ===
-t_max = 2e6
-n_steps = 3000
+t_max = 2e4
+n_steps = int(1e6)
 times = np.linspace(0, t_max, n_steps)
 
 # === Integrate and Record Positions ===
@@ -52,7 +53,7 @@ for i in range(n_steps):
     if r > 0:
         accel_sun[i] = -G * central_mass * r_vec / r**3
 
-# Perturbation (acceleration due to Mars)
+# Perturbation acceleration
 accel_mars = accel_earth_approx - accel_sun
 
 # === Compute Correlation and Ratio ===
@@ -66,14 +67,14 @@ for i in range(n_steps):
     else:
         a_norm = a / np.linalg.norm(a)
         b_norm = b / np.linalg.norm(b)
-        corr_vals[i] = np.dot(a_norm, b_norm)  # cosine of angle
+        corr_vals[i] = np.dot(a_norm, b_norm)
 
     mag_accel_sun = np.linalg.norm(accel_sun[i])
     mag_accel_net = np.linalg.norm(accel_earth_approx[i])
     ratio_vals[i] = mag_accel_sun / mag_accel_net if mag_accel_net > 0 else np.nan
 
 # === Plot Setup ===
-fig, (ax_orbit, ax_corr, ax_ratio) = plt.subplots(3, 1, figsize=(6, 10))
+fig, (ax_orbit, ax_combined) = plt.subplots(2, 1, figsize=(6, 9))
 plt.subplots_adjust(bottom=0.25, hspace=0.35)
 
 # 1️⃣ Orbit Plot
@@ -83,60 +84,57 @@ ax_orbit.set_aspect('equal')
 ax_orbit.set_title("Orbital Motion with Normalized Perturbation and Earth–Mars Vectors")
 ax_orbit.grid(True)
 
-# Static orbit traces
 ax_orbit.plot(positions_1[:, 0], positions_1[:, 1], 'b-', alpha=0.3, label='Earth Orbit')
 ax_orbit.plot(positions_2[:, 0], positions_2[:, 1], 'r-', alpha=0.3, label='Mars Orbit')
-ax_orbit.plot(positions_0[:, 0], positions_0[:, 1], 'yo', label='Sun')
+ax_orbit.plot(positions_0[:, 0], positions_0[:, 1], color='gold', lw=0.5, alpha=0.3, label='Sun Orbit')
 
-marker_sun, = ax_orbit.plot([], [], 'yo', markersize=5)
+
+marker_sun, = ax_orbit.plot([], [], 'yo', markersize=8)
 marker_earth, = ax_orbit.plot([], [], 'bo', markersize=5)
 marker_mars, = ax_orbit.plot([], [], 'ro', markersize=5)
 pert_arrow = None
 mars_arrow = None
-ax_orbit.legend()
+ax_orbit.legend(loc="upper right")
 
-# 2️⃣ Correlation Plot
-ax_corr.set_xlim(times[0], times[-1])
-ax_corr.set_ylim(-1.1, 1.1)
-ax_corr.set_title("Cosine of Angle Between Perturbation and Earth–Mars Vector")
-ax_corr.set_xlabel("Time (s)")
-ax_corr.set_ylabel("Cosine")
-corr_line, = ax_corr.plot([], [], 'm-')
-corr_time_marker = ax_corr.axvline(times[0], color='k', ls='--')
+# 2️⃣ Combined Cosine & Ratio Plot
+ax_combined.set_xlim(times[0], times[-1])
+ax_combined.set_title("Cosine (Magenta) and Accel Ratio (Green)")
+ax_combined.set_xlabel("Time (s)")
 
-# 3️⃣ Ratio Plot
-ax_ratio.set_xlim(times[0], times[-1])
-ax_ratio.set_ylim(0.9 * np.nanmin(ratio_vals), 1.1 * np.nanmax(ratio_vals))
-ax_ratio.set_title("Ratio of |Accel_sun| / |Accel_net|")
-ax_ratio.set_xlabel("Time (s)")
-ax_ratio.set_ylabel("Ratio")
-ratio_line, = ax_ratio.plot([], [], 'g-')
-ratio_time_marker = ax_ratio.axvline(times[0], color='k', ls='--')
+# Left y-axis for cosine
+ax_combined.set_ylabel("Cosine", color='m')
+ax_combined.set_ylim(-1.1, 1.1)
+corr_line, = ax_combined.plot([], [], 'm-', label="Cosine (pert vs Mars)")
+
+# Right y-axis for ratio
+ax_ratio_twin = ax_combined.twinx()
+ax_ratio_twin.set_ylabel("Accel Ratio |Sun|/|Net|", color='g')
+ax_ratio_twin.set_ylim(0.9*np.nanmin(ratio_vals), 1.1*np.nanmax(ratio_vals))
+ratio_line, = ax_ratio_twin.plot([], [], 'g-', label="Accel Ratio")
+
+# Vertical time marker
+corr_time_marker = ax_combined.axvline(times[0], color='k', ls='--')
 
 # === Update Function ===
 def update(i):
     global pert_arrow, mars_arrow
-
-    # Update moving markers
     marker_sun.set_data([positions_0[i, 0]], [positions_0[i, 1]])
     marker_earth.set_data([positions_1[i, 0]], [positions_1[i, 1]])
     marker_mars.set_data([positions_2[i, 0]], [positions_2[i, 1]])
 
-    # Remove previous arrows
     for arrow in [pert_arrow, mars_arrow]:
         if arrow is not None:
             arrow.remove()
     pert_arrow = mars_arrow = None
 
-    # Draw normalized vectors at Earth's position
+    # Normalized arrows from Earth
     earth_pos = positions_1[i]
     pert_vec = accel_mars[i]
     mars_vec = positions_2[i] - positions_1[i]
-
     if np.linalg.norm(pert_vec) > 0 and np.linalg.norm(mars_vec) > 0:
         pert_unit = pert_vec / np.linalg.norm(pert_vec)
         mars_unit = mars_vec / np.linalg.norm(mars_vec)
-        arrow_len = 0.3  # fixed length for normalized vectors
+        arrow_len = 0.3
         pert_arrow = ax_orbit.arrow(earth_pos[0], earth_pos[1],
                                     pert_unit[0]*arrow_len, pert_unit[1]*arrow_len,
                                     color='magenta', head_width=0.03)
@@ -144,11 +142,10 @@ def update(i):
                                     mars_unit[0]*arrow_len, mars_unit[1]*arrow_len,
                                     color='cyan', head_width=0.03)
 
-    # Update correlation and ratio plots
+    scale = 1e3
     corr_line.set_data(times[:i], corr_vals[:i])
-    ratio_line.set_data(times[:i], ratio_vals[:i])
+    ratio_line.set_data(times[:i], scale*(ratio_vals[:i]-1)+1)
     corr_time_marker.set_xdata([times[i], times[i]])
-    ratio_time_marker.set_xdata([times[i], times[i]])
 
 # === Slider and Button ===
 ax_slider = plt.axes([0.15, 0.12, 0.65, 0.03])
