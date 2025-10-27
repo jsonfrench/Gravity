@@ -23,52 +23,22 @@ v1 = np.sqrt(G * central_mass / r1)
 v2 = np.sqrt(G * central_mass / r2)
 
 # === base example
-# sim.add(m=central_mass)   # Sun
-# sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
-# sim.add(m=m2, x=r2, y=0, vy=v2)  # Mars
-# t_max = 2e4
-
-# sim.add(m=central_mass)   # Sun
-# sim.add(m=1, a=1, e = 0.001)  # Earth
-# sim.add(m=0.107, a=2, e = 0.001)  # Mars
-# sim.add(m=2, a=3, e=0.001)  # Mars
-# t_max = 2e4
-
-# # === elliptical inside
 sim.add(m=central_mass)   # Sun
 sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
-sim.add(m=1, a=2, e=0.7) 
+sim.add(m=m2, x=r2, y=0, vy=v2)  # Mars
 t_max = 2e4
 
-# === elliptical outside
+# # === elliptical inside
 # sim.add(m=central_mass)   # Sun
 # sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
-# sim.add(m=1, a=4, e=0.7) 
-# t_max = 2e4
-
-# # === unit masses
-# sim.add(m=100)   # Sun
-# sim.add(m=m1, a=1, e = 0)  # Earth
-# sim.add(m=1, a=2, e=0) 
-# t_max = 5e5
-
-# # === experiment
-# sim.add(m=10000)   # Sun
-# sim.add(m=1, a=10, e = 0.1)  # Earth
-# sim.add(m=0.5, a=30, e=0.1) 
-# t_max = 2e6
-
-# === real world
-# rebound.horizons.SSL_CONTEXT = 'unverified'
-# sim.add("sun")
-# sim.add("earth")
-# sim.add("mars")
-# t_max = 60*60*24*365*10
+# sim.add(m=1, a=2, e=0.7) 
+# t_max = 3e4
 
 # === Time Setup ===
 # t_max = 2e4
 n_steps = int(1e4)
 times = np.linspace(0, t_max, n_steps)
+dt = times[1] - times[0]
 
 # === Integrate and Record Positions ===
 positions_0 = np.zeros((n_steps, 2))
@@ -83,8 +53,7 @@ for i, t in enumerate(times):
     positions_1[i] = [p1.x, p1.y]
     positions_2[i] = [p2.x, p2.y]
 
-# === Compute Accelerations ===
-dt = times[1] - times[0]
+# === Compute Accelerations and Velocities ===
 accel_earth_approx = np.zeros_like(positions_1)
 for i in range(2, n_steps):
     accel_earth_approx[i - 1] = (positions_1[i] - 2 * positions_1[i - 1] + positions_1[i - 2]) / dt**2
@@ -116,12 +85,37 @@ for i in range(n_steps):
     mag_accel_net = np.linalg.norm(accel_earth_approx[i])
     ratio_vals[i] = mag_accel_sun / mag_accel_net if mag_accel_net > 0 else np.nan
 
-delta_ratio = np.zeros(len(ratio_vals))
+# === Compute Ratio 1st and 2nd Derivative ===
+dt_ratio = np.zeros(len(ratio_vals))
+dt2_ratio = np.zeros(len(ratio_vals))
 for i in range(len(ratio_vals)): 
-    if (i >= 0):
-        delta_ratio[i] = ratio_vals[i] - ratio_vals[i-1]
-    else:
-        delta_ratio[i] = 0
+    if (i >= 1):
+        dt_ratio[i-1] = (ratio_vals[i] - ratio_vals[i-1]) / dt
+    if (i >= 2):
+        dt2_ratio[i-2] = (ratio_vals[i] - 2*ratio_vals[i-1] + ratio_vals[i-2]) / dt**2
+    if dt2_ratio[i] == 0:
+        dt2_ratio[i] = np.nan
+    if dt_ratio[i] == 0:
+        dt_ratio[i] = np.nan
+
+test_ratio = np.zeros(len(ratio_vals))
+for i in range(len(ratio_vals)): 
+    if (i >= 1):
+        test_ratio[i-1] = (dt_ratio[i] - dt_ratio[i-1]) / dt
+
+print(5/dt2_ratio[1])
+print("min:", np.nanmin(dt2_ratio))
+print("max", np.nanmax(dt2_ratio))
+
+# dt_ratio = (dt_ratio - dt_ratio[1]) / (np.nanmax(dt_ratio) - np.nanmin(dt_ratio))   # normalize data and shift it to origin
+# dt2_ratio = (dt2_ratio - 0*dt2_ratio[1]) / (np.nanmax(dt2_ratio) - np.nanmin(dt2_ratio))   # normalize data and shift it to origin
+
+
+crossings = np.zeros(len(ratio_vals))
+for i in range(len(dt_ratio)):
+    if dt_ratio[i] > 0 and dt_ratio[i] + dt2_ratio[i] < 0:
+        crossings[i] = times[i]
+        print(f"at index {i}, {dt_ratio[i]} + {dt2_ratio[i]} < 0")
 
 # === Plot Setup ===
 fig, (ax_orbit, ax_combined, ax_delta) = plt.subplots(3, 1, figsize=(6, 9))
@@ -129,7 +123,10 @@ plt.subplots_adjust(bottom=0.25, hspace=0.35)
 
 ax_delta.set_xlim(times[0], times[-1])
 ax_delta.plot(times, np.zeros(len(times)), "--", color="black")
-ax_delta.plot(times, delta_ratio)
+ax_delta.plot(times, dt_ratio)
+ax_delta.plot(times, dt2_ratio, color = "purple")
+ax_delta.scatter(crossings, np.zeros_like(crossings), color = "red")
+
 
 # 1️⃣ Orbit Plot
 # ax_orbit.set_xlim(-1.6, 1.6)
