@@ -103,23 +103,15 @@ for i in range(len(ratio_vals)):
     if (i >= 1):
         test_ratio[i-1] = (dt_ratio[i] - dt_ratio[i-1]) / dt
 
-print(5/dt2_ratio[1])
-print("min:", np.nanmin(dt2_ratio))
-print("max", np.nanmax(dt2_ratio))
-
-# dt_ratio = (dt_ratio - dt_ratio[1]) / (np.nanmax(dt_ratio) - np.nanmin(dt_ratio))   # normalize data and shift it to origin
-# dt2_ratio = (dt2_ratio - 0*dt2_ratio[1]) / (np.nanmax(dt2_ratio) - np.nanmin(dt2_ratio))   # normalize data and shift it to origin
-
-
 crossings = np.zeros(len(ratio_vals))
 for i in range(len(dt_ratio)):
     if dt_ratio[i] > 0 and dt_ratio[i] + dt2_ratio[i] < 0:
         crossings[i] = times[i]
-        print(f"at index {i}, {dt_ratio[i]} + {dt2_ratio[i]} < 0")
 
 # === Plot Setup ===
 fig, (ax_orbit, ax_combined, ax_delta) = plt.subplots(3, 1, figsize=(6, 9))
 plt.subplots_adjust(bottom=0.25, hspace=0.35)
+idx = 0 # Animation starts on this frame
 
 ax_delta.set_xlim(times[0], times[-1])
 ax_delta.plot(times, np.zeros(len(times)), "--", color="black")
@@ -220,9 +212,9 @@ button = Button(ax_button, 'Play/Pause')
 button.on_clicked(toggle)
 
 def slider_update(val):
-    i = int(slider.val)
-    update(i)
-    fig.canvas.draw_idle()
+    global idx
+    idx = int(slider.val)
+    update(idx)
 slider.on_changed(slider_update)
 
 # === Textbox for Jump-to-Frame ===
@@ -231,13 +223,10 @@ text_box = TextBox(axbox, 'Jump to Frame:', initial="0")
 
 def jump_to_frame(text):
     try:
+        global idx
         idx = int(text)
-        update(idx)
-        slider.set_val(idx)
-        if 0 <= idx < n_steps:
-            frame = idx
-            update(frame)
-            fig.canvas.draw_idle()
+        update(idx)         # update the plots to the current time value
+        slider.set_val(idx) # update the slider to be on the current time value
     except:
         print("Invalid frame index")
 
@@ -245,10 +234,12 @@ text_box.on_submit(jump_to_frame)
 
 
 def animate(frame):
+    global idx
     if not paused:
-        slider.set_val(frame)
+        idx = (idx + 1) % n_steps   # Increment counter and wrap around at the end 
+        slider.set_val(idx)
     return []
 
-ani = FuncAnimation(fig, animate, frames=times, interval=10, blit=False, repeat=True)
+ani = FuncAnimation(fig, animate, frames=times, interval=10, blit=True, repeat=True)
 
 plt.show()
