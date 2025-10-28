@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button, Slider, TextBox
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, savgol_filter
 
 import sys
 
@@ -28,7 +28,7 @@ sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
 sim.add(m=m2, x=r2, y=0, vy=v2)  # Mars
 t_max = 2e4
 
-# # === elliptical inside
+# === elliptical inside
 # sim.add(m=central_mass)   # Sun
 # sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
 # sim.add(m=1, a=2, e=0.7) 
@@ -85,9 +85,13 @@ for i in range(n_steps):
     mag_accel_net = np.linalg.norm(accel_earth_approx[i])
     ratio_vals[i] = mag_accel_sun / mag_accel_net if mag_accel_net > 0 else np.nan
 
+smoothing = 5
+smoothed_ratio_vals = np.convolve(ratio_vals, (np.zeros(smoothing)+1)/smoothing, "same")
+
 # === Compute Ratio 1st and 2nd Derivative ===
 dt_ratio = np.zeros(len(ratio_vals))
 dt2_ratio = np.zeros(len(ratio_vals))
+
 for i in range(len(ratio_vals)): 
     if (i >= 1):
         dt_ratio[i-1] = (ratio_vals[i] - ratio_vals[i-1]) / dt
@@ -98,14 +102,24 @@ for i in range(len(ratio_vals)):
     if dt_ratio[i] == 0:
         dt_ratio[i] = np.nan
 
-test_ratio = np.zeros(len(ratio_vals))
-for i in range(len(ratio_vals)): 
-    if (i >= 1):
-        test_ratio[i-1] = (dt_ratio[i] - dt_ratio[i-1]) / dt
+# === Peak Detection Using Derivative Information ===
+
+# Smooth over the data
+smoothing = 5
+dt_ratio = np.convolve(dt_ratio, (np.zeros(smoothing)+1)/smoothing, "same")
+dt2_ratio = np.convolve(dt2_ratio, (np.zeros(smoothing)+1)/smoothing, "same")
+
+# How far ahead to approximate dt_ratio
+euler_step_size = 10
+
+# Threshold for dt_height check
+dt_threshold = 0.05    # % range of dt_ratio
+
+# Threshold for dt2_height check
 
 crossings = np.zeros(len(ratio_vals))
 for i in range(len(dt_ratio)):
-    if dt_ratio[i] > 0 and dt_ratio[i] + dt2_ratio[i] < 0:
+    if dt_ratio[i] > dt_threshold*(np.nanmax(dt_ratio)-np.nanmin(dt_ratio)) and dt_ratio[i] + euler_step_size*dt2_ratio[i] < 0:
         crossings[i] = times[i]
 
 # === Plot Setup ===
