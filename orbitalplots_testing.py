@@ -1,3 +1,5 @@
+# OrbitalPlots_testing file
+
 import rebound
 import numpy as np
 from orbitalplots import OrbitalPlots
@@ -9,19 +11,28 @@ from orbitalplots import OrbitalPlots
 # --- Physical constants ---
 G = 6.67430e-11  # gravitational constant (m^3 / kg / s^2)
 mass_sun = 1.9885e30
+mass_mercury = 3.301e23
 mass_venus = 4.867e24
 mass_earth = 5.972e24
 mass_mars = 6.4171e23
+mass_jupiter = 1.898e27
+mass_saturn = 5.683e26
 
 # --- Orbital radii (m) ---
+r_mercury = 5.79e10
 r_venus = 1.08e11   # 0.728 au
 r_earth = 1.496e11  # 1 au
 r_mars = 2.279e11   # 1.524 au
+r_jupiter = 7.786e11
+r_saturn = 1.43e12
 
 # --- Circular velocities (m/s) assuming central mass = Sun ---
+v_mercury = np.sqrt(G * mass_sun / r_mercury)
 v_venus = np.sqrt(G * mass_sun / r_venus)
 v_earth = np.sqrt(G * mass_sun / r_earth)
 v_mars = np.sqrt(G * mass_sun / r_mars)
+v_jupiter = np.sqrt(G * mass_sun / r_jupiter)
+v_saturn = np.sqrt(G * mass_sun / r_saturn)
 
 # --- Create simulation ---
 sim = rebound.Simulation()
@@ -32,12 +43,16 @@ sim.integrator = "ias15"
 # should be done in SUN - EARTH - MARS - OTHERS order
 sim.add(m=mass_sun)                                 # Sun
 sim.add(m=mass_earth, x=r_earth, y=0, vy=v_earth)   # Earth
+sim.add(m=mass_jupiter, x=r_jupiter, y=0, vy=v_jupiter) # jupiter being third makes it the unknown
 sim.add(m=mass_mars, x=r_mars, y=0, vy=v_mars)      # Mars
 sim.add(m=mass_venus, x = r_venus, y=0, vy=v_venus) # Venus
+# sim.add(m=mass_mercury, x = r_mercury, y=0, vy=v_mercury)
+# sim.add(m=mass_saturn, x=r_saturn, y=0, vy=v_saturn)
 
 # --- Time setup ---
-t_max = 1e8    
-n_steps = int(1e6)
+YEARS = 30
+t_max = YEARS * 365.25 * 24 * 60 * 60  
+n_steps = int(t_max // 3600)
 times = np.linspace(0, t_max, n_steps)
 dt = times[1] - times[0]
 
@@ -74,14 +89,15 @@ accel_earth_approx = finite_diff_accel(positions[1], dt)
 # Gravitational acceleration due to Sun and any other bodies
 accel_sun = np.zeros_like(positions[1])
 
+# initialize a net acceleration array
+net_accel_others = np.zeros_like(positions[1])
+
 # create boolean flag to indicate other known bodies are present
 other_bodies_flag = False
 if len(positions) > 3:
     # switch flag to indicate other known bodies are present
     other_bodies_flag = True
-
-    # initialize a net acceleration array
-    net_accel_others = np.zeros_like(positions[1])
+    
     # if the system contains more known bodies than S-E-M, create array of 0s with the shape 
     # (# other bodies = # total bodies - 3 to acct for S-E-M, length of earth orbital array)
     # for storing the accelerations on earth due to other bodies, then create an array
@@ -134,9 +150,12 @@ for i in range(n_steps):
     # mag_sun = np.linalg.norm(accel_sun[i])
     mag_others = np.linalg.norm(net_accel_others[i])
     mag_net = np.linalg.norm(accel_earth_approx[i])
-    ratio_vals[i] = mag_others / mag_net if mag_net > 0 else np.nan
+    ratio_vals[i] = mag_others / mag_net if mag_net > 0 else ratio_vals[i-1] if i>0 else 1
+
+ratio_vals = np.delete(ratio_vals, [0,len(ratio_vals)-1])
 
 # accentuate the fluctuations in the ratio array -- tweak procedurally for more known bodies?
+# for instance [sum of known non-earth masses]/[earth mass]?
 ratio_vals = (ratio_vals - 1) * (mass_sun / mass_earth) + 1
 
 corr_vals = np.zeros(n_steps)
@@ -148,25 +167,32 @@ for i in range(n_steps):
     else:
         corr_vals[i] = np.dot(a/np.linalg.norm(a), b/np.linalg.norm(b))
 
+corr_vals = np.delete(corr_vals, [0, len(corr_vals)-1])
 # ============================================================
 # =============== Launch OrbitalPlots visualization ==========
 # ============================================================
 
 times_years = times / (365.25 * 24 * 3600)  # convert seconds to years
 
+lim = compute_plot_limits([r_earth,r_mars])
+
 plots = OrbitalPlots(
     positions_list=positions,
+    times_years=times_years,
     ratio_vals=ratio_vals,
     corr_vals=corr_vals,
-    times_years=times_years,
-    xlim=2.5e11,
-    ylim=2.5e11,
+    xlim=lim,
+    ylim=lim,
     mov_avg_len=19,
     prominence_val=0.05
 )
 
-plots.create_ratio_cosine_figure()
+# plots.create_ratio_cosine_figure()
 
 # plots.create_orbit_figure()
 
+# plots.create_ratio_cosine_figure()
+plots.plot_ratio_cosine_with_synodic_fft()
 plots.show_plots()
+
+# plots.plot_fft()
