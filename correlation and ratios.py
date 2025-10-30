@@ -86,8 +86,9 @@ for i in range(n_steps):
     mag_accel_net = np.linalg.norm(accel_earth_approx[i])
     ratio_vals[i] = mag_accel_sun / mag_accel_net if mag_accel_net > 0 else np.nan
 
-smoothing = 5
-smoothed_ratio_vals = np.convolve(ratio_vals, (np.zeros(smoothing)+1)/smoothing, "same")
+# Smooth data to remove high frequency noise
+smoothing = 1
+ratio_vals= np.convolve(ratio_vals, (np.zeros(smoothing)+1)/smoothing, "same")
 
 # === Compute Ratio 1st and 2nd Derivative ===
 dt_ratio = np.zeros(len(ratio_vals))
@@ -104,11 +105,6 @@ for i in range(len(ratio_vals)):
         dt_ratio[i] = np.nan
 
 # === Peak Detection Using Derivative Information ===
-
-# Smooth over the data
-smoothing = 5
-dt_ratio = np.convolve(dt_ratio, (np.zeros(smoothing)+1)/smoothing, "same")
-dt2_ratio = np.convolve(dt2_ratio, (np.zeros(smoothing)+1)/smoothing, "same")
 
 # How far ahead to approximate dt_ratio
 euler_step_size = 50
