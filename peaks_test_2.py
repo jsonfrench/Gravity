@@ -19,7 +19,7 @@ G = 6.67430e-11
 central_mass = 300000.0
 r1, r2 = 1.0, 2
 m1 = 1.0
-m2 = 0.2
+m2 = 100
 v1 = np.sqrt(G * central_mass / r1)
 v2 = np.sqrt(G * central_mass / r2)
 
