@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button, Slider, TextBox
-from scipy.signal import find_peaks, savgol_filter
+from scipy.signal import find_peaks
+from scipy.stats import zscore, tstd
 
 import sys
 
@@ -110,17 +111,21 @@ dt_ratio = np.convolve(dt_ratio, (np.zeros(smoothing)+1)/smoothing, "same")
 dt2_ratio = np.convolve(dt2_ratio, (np.zeros(smoothing)+1)/smoothing, "same")
 
 # How far ahead to approximate dt_ratio
-euler_step_size = 10
-
-# Threshold for dt_height check
-dt_threshold = 0.05    # % range of dt_ratio
+euler_step_size = 50
 
 # Threshold for dt2_height check
+dt2_threshold = 1    # Number of standard deviations away from the mean that we ignore data
 
 crossings = np.zeros(len(ratio_vals))
 for i in range(len(dt_ratio)):
-    if dt_ratio[i] > dt_threshold*(np.nanmax(dt_ratio)-np.nanmin(dt_ratio)) and dt_ratio[i] + euler_step_size*dt2_ratio[i] < 0:
+
+    crosses_zero = np.abs(dt_ratio[i] + (dt_ratio[i] + (euler_step_size*dt2_ratio[i]))) < np.abs(dt_ratio[i]) + np.abs(dt_ratio[i] + (euler_step_size*dt2_ratio[i])) # Use triangle inequality to detect when two points have opposite signs 
+    is_significantly_steep = np.abs(zscore(dt2_ratio, nan_policy="omit")[i]) > dt2_threshold     # Only consider crossings with a significantly change in dt_ratio 
+    # is_significantly_steep = dt_ratio[i] > dt2_threshold*(np.nanmax(dt_ratio)-np.nanmin(dt_ratio)) # Ignore values within a proportion of the range of dt_values. Cheaper than zscore but only works for well behaved orbits.
+
+    if crosses_zero and is_significantly_steep:
         crossings[i] = times[i]
+
 
 # === Plot Setup ===
 fig, (ax_orbit, ax_combined, ax_delta) = plt.subplots(3, 1, figsize=(6, 9))
