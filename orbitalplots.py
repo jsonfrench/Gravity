@@ -3,30 +3,16 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import Button, Slider
 from matplotlib.animation import FuncAnimation
 from scipy.signal import find_peaks
+from numpy.fft import rfft, rfftfreq
 
 class OrbitalPlots:
     def __init__(self, positions_list, ratio_vals, corr_vals, times_years,
                  xlim=1, ylim=1,
                  mov_avg_len=19, prominence_val=0.05):
-        """
-        positions_list : list of np.ndarray
-            Each array shape (n_steps, 2), for each body.
-        ratio_vals : np.ndarray
-            Array of ratio values (same length as times_years or shorter).
-        corr_vals : np.ndarray
-            Array of cosine correlation values (same length as times_years or shorter).
-        times_years : np.ndarray
-            Time array (in years).
-        xlim, ylim : tuple
-            Plot limits for both figures.
-        mov_avg_len : int
-            Length of moving average smoothing.
-        prominence_val : float
-            Peak detection prominence.
-        """
-
         self.positions_list = positions_list
+        # clean the ratio array to remove any instances of nan
         self.ratio_vals = ratio_vals
+
         self.corr_vals = corr_vals
         self.times_years = times_years
         self.xlim = xlim
@@ -38,22 +24,27 @@ class OrbitalPlots:
         self.idx = 0
         self.paused = True
 
-        # --- Derived arrays ---
+        # Derived arrays
         self.ratio_vals_smooth = np.convolve(ratio_vals, np.ones(mov_avg_len)/mov_avg_len, mode='valid')
         self.corr_vals_smooth = np.convolve(corr_vals, np.ones(mov_avg_len)/mov_avg_len, mode='valid')
         self.times_ratio = times_years[:len(self.ratio_vals_smooth)]
 
-        # --- Peak detection ---
+        # Peak detection (full arrays)
         self.ratio_peaks_all, _ = find_peaks(self.ratio_vals_smooth, prominence=prominence_val)
         cos_peaks_all, _ = find_peaks(self.corr_vals_smooth, prominence=prominence_val)
         self.cos_peaks = np.array([cp for cp in cos_peaks_all if self.corr_vals_smooth[cp] >= 0.9], dtype=int)
 
+        # Initialize state for ratio figure
+        self.paused2 = True
+        self.current_idx2 = 0
+        self.ratio_peaks_seen = set()
+        self.cos_values_at_ratio_peaks = []
+        self.timesteps_per_frame = 1  # controlled by speed slider
+
         print(f"Initialized OrbitalPlots with {len(positions_list)} orbits.")
         print(f"Found {len(self.ratio_peaks_all)} ratio peaks, {len(self.cos_peaks)} cosine peaks ≥ 0.9.")
 
-    # ============================================================
-    # =============== FIGURE 1: Orbital Motion ===================
-    # ============================================================
+    # ========================= ORBIT FIGURE =========================
     def create_orbit_figure(self):
         fig, ax = plt.subplots(figsize=(7, 7))
         ax.set_xlim(-self.xlim, self.xlim)
@@ -62,10 +53,7 @@ class OrbitalPlots:
         ax.grid(True)
         ax.set_title("Orbital Motion")
 
-        # Distinct colors
         colors = plt.cm.tab10(np.linspace(0, 1, len(self.positions_list)))
-
-        # Plot paths and markers
         markers = []
         for i, pos in enumerate(self.positions_list):
             ax.plot(pos[:, 0], pos[:, 1], '-', alpha=0.3, color=colors[i], label=f"Body {i}")
@@ -75,50 +63,37 @@ class OrbitalPlots:
         # Slider & button
         ax_slider = plt.axes([0.15, 0.05, 0.65, 0.03])
         self.slider = Slider(ax_slider, 'Index', 0, len(self.positions_list[0]) - 1, valinit=0, valstep=1)
-
         ax_button = plt.axes([0.82, 0.045, 0.1, 0.04])
         self.button = Button(ax_button, 'Play/Pause')
 
-        self.paused = True
-        self.current_idx = 0
-
         def toggle(event):
             self.paused = not self.paused
-
         self.button.on_clicked(toggle)
 
         def slider_update(val):
-            self.current_idx = int(self.slider.val)
-            update(self.current_idx)
-
+            self.idx = int(self.slider.val)
+            update(self.idx)
         self.slider.on_changed(slider_update)
 
         def update(i):
             for j, pos in enumerate(self.positions_list):
                 markers[j].set_data([pos[i, 0]], [pos[i, 1]])
 
-
         def animate(frame):
             if not self.paused:
-                self.current_idx = (self.current_idx + 1) % len(self.positions_list[0])
-                self.slider.set_val(self.current_idx)
-                update(self.current_idx)
+                self.idx = (self.idx + 1) % len(self.positions_list[0])
+                self.slider.set_val(self.idx)
+                update(self.idx)
 
-        self.anim = FuncAnimation(fig, animate, frames=len(self.times_years),
-                          interval=20, repeat=True)
+        self.anim = FuncAnimation(fig, animate, frames=len(self.times_years), interval=20, repeat=True)
         plt.legend()
+        update(0)
         fig.show()
 
-
-        update(0)
-
-
-    # ============================================================
-    # =========== FIGURE 2: Ratio + Cosine Animation =============
-    # ============================================================
+    # ==================== RATIO + COSINE FIGURE ====================
     def create_ratio_cosine_figure(self):
         fig2, (ax_orbit, ax_combined) = plt.subplots(2, 1, figsize=(7, 9))
-        plt.subplots_adjust(bottom=0.25, hspace=0.35)
+        plt.subplots_adjust(bottom=0.35, hspace=0.35)
 
         # Orbit panel
         ax_orbit.set_xlim(-self.xlim, self.xlim)
@@ -145,7 +120,7 @@ class OrbitalPlots:
         ax_ratio2 = ax_combined.twinx()
         ax_ratio2.set_ylabel("Accel Ratio", color='g')
         ax_ratio2.set_ylim(np.nanmin(self.ratio_vals_smooth)*0.9,
-                           np.nanmax(self.ratio_vals_smooth)*1.1)
+                        np.nanmax(self.ratio_vals_smooth)*1.1)
         ratio_line2, = ax_ratio2.plot([], [], 'g-')
         peak_dots2, = ax_ratio2.plot([], [], 'ro', markersize=5)
         cos_peak_dots2, = ax_combined.plot([], [], 'ro', markersize=5)
@@ -156,38 +131,44 @@ class OrbitalPlots:
         self.current_idx2 = 0
         self.ratio_peaks_seen = set()
         self.cos_values_at_ratio_peaks = []
+        self.timesteps_per_frame = 1  # default speed
 
-        # Button + slider
-        ax_slider2 = plt.axes([0.15, 0.12, 0.65, 0.03])
-        slider2 = Slider(ax_slider2, 'Time idx', 0, len(self.times_ratio) - 1, valinit=0, valstep=1)
-        ax_button2 = plt.axes([0.82, 0.11, 0.1, 0.04])
+        # --- Buttons and sliders ---
+        ax_button2 = plt.axes([0.82, 0.25, 0.1, 0.04])
         button2 = Button(ax_button2, 'Play/Pause')
+        button2.on_clicked(lambda event: setattr(self, 'paused2', not self.paused2))
 
-        def toggle2(event):
-            self.paused2 = not self.paused2
-
-        button2.on_clicked(toggle2)
-
+        ax_slider2 = plt.axes([0.15, 0.25, 0.65, 0.03])
+        slider2 = Slider(ax_slider2, 'Time idx', 0, len(self.times_ratio)-1, valinit=0, valstep=1)
         def slider2_update(val):
-            self.current_idx2 = int(slider2.val)
+            self.current_idx2 = int(val)
             update_fig2(self.current_idx2)
 
         slider2.on_changed(slider2_update)
 
-        # --- Update Function ---
+        ax_speed = plt.axes([0.15, 0.18, 0.65, 0.03])
+        speed_slider = Slider(ax_speed, 'Speed', 1, 5, valinit=1, valstep=1)
+        def speed_update(val):
+            # Scale speed relative to total length
+            total_steps = len(self.times_ratio)
+            self.timesteps_per_frame = int(val * max(1, total_steps//500))
+        speed_slider.on_changed(speed_update)
+
+        # --- Update function ---
         def update_fig2(idx):
             for j, pos in enumerate(self.positions_list):
                 markers[j].set_data([pos[idx, 0]], [pos[idx, 1]])
-
 
             corr_line2.set_data(self.times_ratio[:idx+1], self.corr_vals_smooth[:idx+1])
             ratio_line2.set_data(self.times_ratio[:idx+1], self.ratio_vals_smooth[:idx+1])
             time_marker2.set_xdata([self.times_ratio[idx], self.times_ratio[idx]])
 
-            # Detect new ratio peaks
-            new_ratio_peaks = [p for p in self.ratio_peaks_all if p <= idx and p not in self.ratio_peaks_seen]
-            for p in new_ratio_peaks:
-                nearest_idx = self.cos_peaks[np.argmin(np.abs(self.cos_peaks - p))] if len(self.cos_peaks) > 0 else None
+            # Real-time ratio peak detection
+            ratio_partial = self.ratio_vals_smooth[:idx+1]
+            ratio_peaks_partial, _ = find_peaks(ratio_partial, prominence=self.prominence_val)
+            new_peaks = [p for p in ratio_peaks_partial if p not in self.ratio_peaks_seen]
+            for p in new_peaks:
+                nearest_idx = self.cos_peaks[np.argmin(np.abs(self.cos_peaks - p))] if len(self.cos_peaks)>0 else None
                 delta = (nearest_idx - p) if nearest_idx is not None else None
                 status = f"{abs(delta)} timesteps to nearest cosine peak" if delta is not None else "no nearby cosine peak"
                 print(f"Ratio peak idx={p}, nearest cosine peak idx={nearest_idx}, {status}")
@@ -202,29 +183,214 @@ class OrbitalPlots:
                 angles = np.degrees(np.arccos(np.clip(cos_array, -1, 1)))
                 print(f"Mean cosine={mean_cos:.4f}, Std={std_cos:.4f}, Mean angle={np.mean(angles):.2f}°, Std angle={np.std(angles):.2f}°")
 
-                self.paused2 = True  # Pause at each ratio peak
+                # Auto-pause at peak
+                self.paused2 = True
 
-            peak_dots2.set_data(self.times_ratio[self.ratio_peaks_all], self.ratio_vals_smooth[self.ratio_peaks_all])
+            # Update dots
+            if len(self.ratio_peaks_seen) > 0:
+                peak_dots2.set_data(self.times_ratio[list(self.ratio_peaks_seen)],
+                                    self.ratio_vals_smooth[list(self.ratio_peaks_seen)])
             if len(self.cos_peaks) > 0:
                 cos_peak_dots2.set_data(self.times_ratio[self.cos_peaks], self.corr_vals_smooth[self.cos_peaks])
             else:
                 cos_peak_dots2.set_data([], [])
 
+        # --- Animation ---
         def animate2(frame):
             if not self.paused2:
-                step = 10
-                self.current_idx2 = (self.current_idx2 + step) % len(self.times_ratio)
+                self.current_idx2 += self.timesteps_per_frame
+                if self.current_idx2 >= len(self.times_ratio):
+                    self.current_idx2 = len(self.times_ratio) - 1
+                # Temporarily disable slider callbacks to prevent interference with pause
+                slider2.eventson = False
                 slider2.set_val(self.current_idx2)
+                slider2.eventson = True
                 update_fig2(self.current_idx2)
 
+
         self.anim = FuncAnimation(fig2, animate2, frames=len(self.times_years),
-                          interval=20, repeat=True)
+                                interval=20, repeat=True)
         plt.legend()
         fig2.show()
-
-
         update_fig2(0)
 
+    def plot_ratio_cosine_with_synodic(self):
+        """
+        Plot the entire ratio and cosine arrays with peaks marked, show FFT-predicted
+        synodic period, and draw vertical dashed lines at synodic intervals with a slider
+        to shift their phase.
+        """
 
+        fig, ax = plt.subplots(figsize=(10,6))
+        plt.subplots_adjust(bottom=0.2)
+
+        # --- Smoothed arrays ---
+        ratio_smooth = np.convolve(self.ratio_vals, np.ones(self.mov_avg_len)/self.mov_avg_len, mode='valid')
+        corr_smooth = np.convolve(self.corr_vals, np.ones(self.mov_avg_len)/self.mov_avg_len, mode='valid')
+        times = self.times_years[:len(ratio_smooth)]
+
+        # --- Peaks ---
+        ratio_peaks, _ = find_peaks(ratio_smooth, prominence=self.prominence_val)
+        cos_peaks, _ = find_peaks(corr_smooth, prominence=self.prominence_val)
+        
+        # --- Plot ratio and cosine ---
+        ax.plot(times, ratio_smooth, 'g-', label='Ratio')
+        ax.plot(times, corr_smooth, 'm-', label='Cosine')
+        ax.plot(times[ratio_peaks], ratio_smooth[ratio_peaks], 'ro', label='Ratio Peaks')
+        ax.plot(times[cos_peaks], corr_smooth[cos_peaks], 'bo', label='Cos Peaks')
+
+        # --- FFT to predict synodic period ---
+        ratio_centered = ratio_smooth - np.mean(ratio_smooth)
+        N = len(ratio_centered)
+        dt = times[1] - times[0]
+        freqs = rfftfreq(N, dt)
+        fft_mag = np.abs(rfft(ratio_centered))
+
+        # Only consider frequencies <= 1/year
+        mask = freqs <= 1
+        if np.any(mask):
+            freqs_masked = freqs[mask]
+            fft_mag_masked = fft_mag[mask]
+            idx_peak = np.argmax(fft_mag_masked[1:]) + 1  # skip DC
+            synodic_period = 1 / freqs_masked[idx_peak]
+        else:
+            synodic_period = np.nan
+
+        ax.set_title(f"Ratio & Cosine with Peaks\nPredicted Synodic Period ≈ {synodic_period:.2f} yr")
+        ax.set_xlabel("Time (years)")
+        ax.set_ylabel("Value")
+        ax.legend()
+        ax.grid(True)
+
+        # --- Dashed lines at synodic intervals ---
+        num_lines = int(np.ceil((times[-1] - times[0]) / synodic_period))
+        line_positions = np.array([i*synodic_period for i in range(num_lines)])
+        lines = [ax.axvline(x=pos, color='k', ls='--') for pos in line_positions]
+
+        # --- Slider to shift phase of dashed lines ---
+        ax_slider = plt.axes([0.15, 0.05, 0.7, 0.03])
+        slider = Slider(ax_slider, 'Phase', 0, synodic_period, valinit=0)
+
+        def update_phase(val):
+            phase = slider.val
+            for i, line in enumerate(lines):
+                new_pos = (i*synodic_period + phase) % (times[-1] + synodic_period)
+                line.set_xdata([new_pos, new_pos])
+            fig.canvas.draw_idle()
+
+        slider.on_changed(update_phase)
+
+        plt.show()
+
+    def plot_fft(self):
+        fft = rfft(self.ratio_vals_smooth - np.mean(self.ratio_vals_smooth))
+        freq = rfftfreq(len(self.ratio_vals_smooth), d=(self.times_years[1]-self.times_years[0]))
+        plt.plot(self.times_years[:len(self.ratio_vals_smooth)], self.ratio_vals_smooth - np.nanmean(self.ratio_vals_smooth))
+        plt.title('ratio array vs time')
+        plt.show()
+        plt.plot(freq, np.abs(fft))
+        plt.title('magnitude spectrum of ratio vals')
+        plt.show()
+
+
+    def plot_ratio_cosine_with_synodic_fft(self):
+        """
+        Plot the entire ratio and cosine arrays with peaks marked, show FFT-predicted
+        synodic period, and add a subplot of the FFT magnitude between 0 and 1/year.
+        Includes vertical dashed lines at predicted synodic intervals with a phase slider.
+        """
+
+        fig, (ax_main, ax_fft) = plt.subplots(2, 1, figsize=(10, 8), gridspec_kw={'height_ratios':[2,1]})
+        plt.subplots_adjust(bottom=0.2, hspace=0.35)
+
+        # --- Smoothed arrays ---
+        ratio_smooth = np.convolve(self.ratio_vals, np.ones(self.mov_avg_len)/self.mov_avg_len, mode='valid')
+        corr_smooth = np.convolve(self.corr_vals, np.ones(self.mov_avg_len)/self.mov_avg_len, mode='valid')
+        times = self.times_years[:len(ratio_smooth)]
+
+        # --- Peaks ---
+        ratio_peaks, _ = find_peaks(ratio_smooth, prominence=self.prominence_val)
+        cos_peaks, _ = find_peaks(corr_smooth, prominence=self.prominence_val)
+        
+        # --- Plot ratio and cosine ---
+        ax_main.plot(times, ratio_smooth, 'g-', label='Ratio')
+        ax_main.plot(times, corr_smooth, 'm-', label='Cosine')
+        ax_main.plot(times[ratio_peaks], ratio_smooth[ratio_peaks], 'ro', label='Ratio Peaks')
+        ax_main.plot(times[cos_peaks], corr_smooth[cos_peaks], 'bo', label='Cos Peaks')
+
+
+        # Only consider frequencies <= 1/year
+        # --- FFT to predict synodic period ---
+        ratio_centered = ratio_smooth - np.mean(ratio_smooth)
+        N = len(ratio_centered)
+        dt = times[1] - times[0]  # timestep in years
+
+        fft_vals = rfft(ratio_centered)
+        fft_mag = np.abs(fft_vals)
+        freqs = rfftfreq(N, dt)  # frequencies in 1/year
+
+        # Consider only positive frequencies <= 1/year
+        mask = (freqs > 0) & (freqs <= 2)
+        freqs_masked = freqs[mask]
+        fft_mag_masked = fft_mag[mask]
+
+        if len(freqs_masked) > 0:
+            idx_peak = np.argmax(fft_mag_masked)
+            synodic_period = 1 / freqs_masked[idx_peak]
+        else:
+            synodic_period = np.nan
+
+        ax_main.set_title(f'Predicted (Mean) Synodic Period: {synodic_period:.2f} yr')
+
+        # Plot FFT magnitude
+        ax_fft.clear()
+        ax_fft.plot(freqs_masked, fft_mag_masked, 'b-')
+        ax_fft.set_xlabel("Frequency (1/year)")
+        ax_fft.set_ylabel("Magnitude")
+        ax_fft.set_title(f"FFT Magnitude (0-1 / year), Predicted Synodic: {synodic_period:.2f} yr")
+        ax_fft.grid(True)
+
+        # Highlight peak
+        if not np.isnan(synodic_period):
+            ax_fft.plot(freqs_masked[idx_peak], fft_mag_masked[idx_peak], 'ro', label='Predicted Synodic Frequency')
+            ax_fft.legend()
+
+
+        # --- Dashed lines at synodic intervals ---
+        num_lines = int(np.ceil((times[-1] - times[0]) / synodic_period))
+        line_positions = np.array([i*synodic_period for i in range(num_lines)])
+        lines = [ax_main.axvline(x=pos, color='k', ls='--') for pos in line_positions]
+
+        # --- Slider to shift phase of dashed lines ---
+        ax_slider = plt.axes([0.15, 0.05, 0.7, 0.03])
+        slider = Slider(ax_slider, 'Phase', 0, synodic_period, valinit=0)
+
+        def update_phase(val):
+            phase = slider.val
+            for i, line in enumerate(lines):
+                new_pos = (i*synodic_period + phase) % (times[-1] + synodic_period)
+                line.set_xdata([new_pos, new_pos])
+            fig.canvas.draw_idle()
+
+        slider.on_changed(update_phase)
+
+        # --- FFT subplot ---
+        ax_fft.plot(freqs_masked, fft_mag_masked, 'b-')
+        ax_fft.set_xlabel("Frequency (1/year)")
+        ax_fft.set_ylabel("FFT Magnitude")
+        ax_fft.set_title("Magnitude of RFFT (0-1 / year)")
+        ax_fft.grid(True)
+
+        # --- Annotate predicted synodic period on FFT ---
+        peak_freq = freqs_masked[idx_peak] if not np.isnan(synodic_period) else 0
+        peak_mag = fft_mag_masked[idx_peak] if not np.isnan(synodic_period) else 0
+        ax_fft.plot(peak_freq, peak_mag, 'ro', label='Predicted Synodic Frequency')
+        ax_fft.legend()
+
+        plt.show()
+
+
+
+    # ================= SHOW PLOTS =================
     def show_plots(self):
         plt.show()
