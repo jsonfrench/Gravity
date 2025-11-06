@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button, Slider, TextBox
 from scipy.signal import find_peaks
-from scipy.stats import zscore, tstd
+from scipy.stats import zscore
 
 import sys
 
@@ -23,7 +23,7 @@ m2 = 0.107
 v1 = np.sqrt(G * central_mass / r1)
 v2 = np.sqrt(G * central_mass / r2)
 
-# === base example
+# # === base example
 sim.add(m=central_mass)   # Sun
 sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
 sim.add(m=m2, x=r2, y=0, vy=v2)  # Mars
@@ -34,6 +34,14 @@ t_max = 2e4
 # sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
 # sim.add(m=1, a=2, e=0.7) 
 # t_max = 3e4
+
+# # === Real world example
+# rebound.horizons.SSL_CONTEXT = "unverified"
+# sim.add("Sun")   # Sun
+# sim.add("Earth")  # Earth
+# sim.add("Mars")  # Mars
+# t_max = 60*60*24*365.25*20
+
 
 # === Time Setup ===
 # t_max = 2e4
@@ -107,7 +115,7 @@ for i in range(len(ratio_vals)):
 # === Peak Detection Using Derivative Information ===
 
 # How far ahead to approximate dt_ratio
-euler_step_size = 50
+euler_step_size = 1
 
 # Threshold for dt2_height check
 dt2_threshold = 1    # Number of standard deviations away from the mean that we ignore data
@@ -115,7 +123,7 @@ dt2_threshold = 1    # Number of standard deviations away from the mean that we 
 crossings = np.zeros(len(ratio_vals))
 for i in range(len(dt_ratio)):
 
-    crosses_zero = np.abs(dt_ratio[i] + (dt_ratio[i] + (euler_step_size*dt2_ratio[i]))) < np.abs(dt_ratio[i]) + np.abs(dt_ratio[i] + (euler_step_size*dt2_ratio[i])) # Use triangle inequality to detect when two points have opposite signs 
+    crosses_zero = np.abs(dt_ratio[i] + (dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size))) < np.abs(dt_ratio[i]) + np.abs(dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)) # Use triangle inequality to detect when two points have opposite signs 
     is_significantly_steep = np.abs(zscore(dt2_ratio, nan_policy="omit")[i]) > dt2_threshold     # Only consider crossings with a significantly change in dt_ratio 
     # is_significantly_steep = dt_ratio[i] > dt2_threshold*(np.nanmax(dt_ratio)-np.nanmin(dt_ratio)) # Ignore values within a proportion of the range of dt_values. Cheaper than zscore but only works for well behaved orbits.
 

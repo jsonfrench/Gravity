@@ -113,10 +113,19 @@ for i in range(len(ratio_vals)):
     if dt_ratio[i] == 0:
         dt_ratio[i] = np.nan
 
+dt2_ratio_test = np.zeros(len(ratio_vals))
+
+for i in range(len(ratio_vals)): 
+    if (i >= 1):
+        dt2_ratio_test[i-1] = (dt_ratio[i] - dt_ratio[i-1]) / dt
+    if dt_ratio[i-1] == 0:
+        dt2_ratio_test[i] = np.nan
+
+
 # === Peak Detection Using Derivative Information ===
 
 # How far ahead to approximate dt_ratio
-euler_step_size = 50
+euler_step_size = 10
 
 # Threshold for dt2_height check
 dt2_threshold = 1    # Number of standard deviations away from the mean that we ignore data
@@ -124,13 +133,12 @@ dt2_threshold = 1    # Number of standard deviations away from the mean that we 
 crossings = np.zeros(len(ratio_vals))
 for i in range(len(dt_ratio)):
 
-    crosses_zero = np.abs(dt_ratio[i] + (dt_ratio[i] + (euler_step_size*dt2_ratio[i]))) < np.abs(dt_ratio[i]) + np.abs(dt_ratio[i] + (euler_step_size*dt2_ratio[i])) # Use triangle inequality to detect when two points have opposite signs 
+    crosses_zero = np.abs(dt_ratio[i] + (dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size))) < np.abs(dt_ratio[i]) + np.abs(dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)) # Use triangle inequality to detect when two points have opposite signs 
     is_significantly_steep = np.abs(zscore(dt2_ratio, nan_policy="omit")[i]) > dt2_threshold     # Only consider crossings with a significantly change in dt_ratio 
     # is_significantly_steep = dt_ratio[i] > dt2_threshold*(np.nanmax(dt_ratio)-np.nanmin(dt_ratio)) # Ignore values within a proportion of the range of dt_values. Cheaper than zscore but only works for well behaved orbits.
 
     if crosses_zero and is_significantly_steep:
         crossings[i] = times[i]
-
 
 # === Plot Setup ===
 fig, (ax_orbit, ax_combined, ax_delta) = plt.subplots(3, 1, figsize=(6, 9))
@@ -139,10 +147,13 @@ idx = 0 # Animation starts on this frame
 
 ax_delta.set_xlim(times[0], times[-1])
 ax_delta.plot(times, np.zeros(len(times)), "--", color="black")
-ax_delta.plot(times, dt_ratio)
+ax_delta.plot(times, dt_ratio, ".-")
 ax_delta.plot(times, dt2_ratio, color = "purple")
 ax_delta.scatter(crossings, np.zeros_like(crossings), color = "red")
 
+# Plot standard deviation boundaries
+ax_delta.plot(times, np.zeros(len(times))+np.nanstd(dt2_ratio)*dt2_threshold, "--", color="grey")
+ax_delta.plot(times, np.zeros(len(times))-np.nanstd(dt2_ratio)*dt2_threshold, "--", color="grey")
 
 # 1️⃣ Orbit Plot
 # ax_orbit.set_xlim(-1.6, 1.6)
@@ -197,8 +208,18 @@ flashlight = Wedge((positions_1[1]),
                     color = "gold", alpha = 0.5)
 ax_orbit.add_patch(flashlight)
 
+# Euler step visualization
+euler_vector, = ax_delta.plot([0,1], [0,0], ".-", color = "purple")
+
 # === Update Function ===
 def update(i):
+    if(i>2):
+        euler_vector.set_data([times[i], times[i+int(euler_step_size)]], [dt_ratio[i], dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)])
+
+    crosses_zero = np.abs(dt_ratio[i] + (dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size))) < np.abs(dt_ratio[i]) + np.abs(dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)) # Use triangle inequality to detect when two points have opposite signs 
+    if crosses_zero:
+        print(f"{i} crossed zero, {dt_ratio[i]} -> {dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)}. Product: {dt_ratio[i] * (dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size))}")
+
     global pert_arrow, mars_arrow
     marker_sun.set_data([positions_0[i, 0]], [positions_0[i, 1]])
     marker_earth.set_data([positions_1[i, 0]], [positions_1[i, 1]])
@@ -215,11 +236,20 @@ def update(i):
     else: 
         marker_mars.set_color("red")
 
+    # === Automatic Telescope Control === 
+    # Assume circular orbits
+    T1 = np.sqrt((4*np.pi**2*r1**3)/(G*central_mass))
+    T2 = np.sqrt((4*np.pi**2*r2**3)/(G*central_mass))   # 1983 
+
     # Shine light on mars if we detect a peak
     if times[i] in crossings:
-        print(f"Peak detected at time {times[i]}")
+        # print(f"i: {i} Peak detected at time {times[i]}")
         angle_awayFromSun = np.arctan2(positions_0[i][1]-positions_1[i][1], positions_0[i][0]-positions_1[i][0])+np.pi
         angle.set_val(angle_awayFromSun)
+    # Twist telescope to follow mars 
+    else: 
+        # print(f"i: {i}, calc: {(r2*(1/T2)*i)-(r1*(1/T1)*i) % (2*np.pi)}, T1: {T1}, T2: {T2}")
+        angle.set_val((r2*(1/T2)*i)-(r1*(1/T1)*i) % (2*np.pi)) 
 
     for arrow in [pert_arrow, mars_arrow]:
         if arrow is not None:
