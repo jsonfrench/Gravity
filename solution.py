@@ -125,12 +125,12 @@ for i in range(len(ratio_vals)):
 # === Peak Detection Using Derivative Information ===
 
 # How far ahead to approximate dt_ratio
-euler_step_size = 10
+euler_step_size = 1
 
 # Threshold for dt2_height check
 dt2_threshold = 1    # Number of standard deviations away from the mean that we ignore data
 
-crossings = np.zeros(len(ratio_vals))
+crossings = np.array([])
 for i in range(len(dt_ratio)):
 
     crosses_zero = np.abs(dt_ratio[i] + (dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size))) < np.abs(dt_ratio[i]) + np.abs(dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)) # Use triangle inequality to detect when two points have opposite signs 
@@ -138,7 +138,7 @@ for i in range(len(dt_ratio)):
     # is_significantly_steep = dt_ratio[i] > dt2_threshold*(np.nanmax(dt_ratio)-np.nanmin(dt_ratio)) # Ignore values within a proportion of the range of dt_values. Cheaper than zscore but only works for well behaved orbits.
 
     if crosses_zero and is_significantly_steep:
-        crossings[i] = times[i]
+        crossings = np.append(crossings, times[i])
 
 # === Plot Setup ===
 fig, (ax_orbit, ax_combined, ax_delta) = plt.subplots(3, 1, figsize=(6, 9))
@@ -170,6 +170,7 @@ ax_orbit.plot(positions_0[:, 0], positions_0[:, 1], color='gold', lw=0.5, alpha=
 marker_sun, = ax_orbit.plot([], [], 'yo', markersize=8)
 marker_earth, = ax_orbit.plot([], [], 'bo', markersize=5)
 marker_mars, = ax_orbit.plot([], [], 'ro', markersize=5)
+c_marker_mars, = ax_orbit.plot([], [], "o", color="red", alpha=0.5, markersize = 6) # calculated position of mars based off measurements
 pert_arrow = None
 mars_arrow = None
 ax_orbit.legend(loc="upper right")
@@ -211,16 +212,14 @@ ax_orbit.add_patch(flashlight)
 # Euler step visualization
 euler_vector, = ax_delta.plot([0,1], [0,0], ".-", color = "purple")
 
+offset = 0
+detected_peaks = []
 # === Update Function ===
 def update(i):
     if(i>2):
         euler_vector.set_data([times[i], times[i+int(euler_step_size)]], [dt_ratio[i], dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)])
 
-    crosses_zero = np.abs(dt_ratio[i] + (dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size))) < np.abs(dt_ratio[i]) + np.abs(dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)) # Use triangle inequality to detect when two points have opposite signs 
-    if crosses_zero:
-        print(f"{i} crossed zero, {dt_ratio[i]} -> {dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)}. Product: {dt_ratio[i] * (dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size))}")
-
-    global pert_arrow, mars_arrow
+    global pert_arrow, mars_arrow, offset, detected_peaks
     marker_sun.set_data([positions_0[i, 0]], [positions_0[i, 1]])
     marker_earth.set_data([positions_1[i, 0]], [positions_1[i, 1]])
     marker_mars.set_data([positions_2[i, 0]], [positions_2[i, 1]])
@@ -237,21 +236,34 @@ def update(i):
         marker_mars.set_color("red")
 
     # === Automatic Telescope Control === 
-    # Assume circular orbits
-    T1 = np.sqrt((4*np.pi**2*r1**3)/(G*central_mass)) / dt
-    T2 = np.sqrt((4*np.pi**2*r2**3)/(G*central_mass)) / dt  # Divide by dt to get time index, not time value 
+    # Assume circular orbits    
+    T1 = np.sqrt((4*np.pi**2*r1**3)/(G*central_mass)) / dt  # Calculate earth's period
+    T2 = np.sqrt((4*np.pi**2*r2**3)/(G*central_mass)) / dt  # Divide by dt to get time index, instead of time value 
 
     # Shine light on mars if we detect a peak
     if times[i] in crossings:
         # print(f"i: {i} Peak detected at time {times[i]}")
         angle_awayFromSun = np.arctan2(positions_0[i][1]-positions_1[i][1], positions_0[i][0]-positions_1[i][0])+np.pi
         angle.set_val(angle_awayFromSun)
+        offset = angle_awayFromSun
+        detected_peaks = [time/dt for time in crossings if time <= times[i]] # Gives indices of detected peaks
+        # print(f"{i}: detected peaks: {detected_peaks} crossings: {crossings} time[i] {times[i]}")
+        if len(detected_peaks) >= 2:
+            T_synodic = (detected_peaks[-1] - detected_peaks[-2]) # Calculate synodic period using peak information
+            T2= 1/((1/T1) - (1/T_synodic))
+            # print(f"T1: {T1} T2: {T2} T_syn:{detected_peaks[-1]}-{detected_peaks[-2]}={T_synodic} T2_calculated: {T2a}")
+
     # Twist telescope to follow mars 
-    else: 
-        # Calculate Mars Position:
-        c_x2, c_y2 = r*np.cos(2*np.pi/T2*i), r*np.sin(2*np.pi/T2*i)
-        angle_fromEarth_toMars = np.arctan2(positions_1[i][1]-c_y2, positions_1[i][0]-c_x2)
+    # Calculate Mars Position:
+    if len(detected_peaks) >= 2:
+        # c_x2, c_y2 = r2*np.cos((2*np.pi/T2*i)), r2*np.sin((2*np.pi/T2*i)) # calculate position based off measurements 
+        c_x2, c_y2 = r2*np.cos((2*np.pi/T2*(i-detected_peaks[-1]))+offset), r2*np.sin((2*np.pi/T2*(i-detected_peaks[-1]))+offset) # calculate position based off measurements 
+
+        c_marker_mars.set_data([c_x2], [c_y2]) # visualize mars calculated position
+
+        angle_fromEarth_toMars = np.arctan2(positions_1[i][1]-c_y2, positions_1[i][0]-c_x2)+np.pi
         angle.set_val(angle_fromEarth_toMars)
+
 
     for arrow in [pert_arrow, mars_arrow]:
         if arrow is not None:
