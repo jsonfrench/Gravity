@@ -147,7 +147,7 @@ idx = 0 # Animation starts on this frame
 
 ax_delta.set_xlim(times[0], times[-1])
 ax_delta.plot(times, np.zeros(len(times)), "--", color="black")
-ax_delta.plot(times, dt_ratio, ".-")
+ax_delta.plot(times, dt_ratio)
 ax_delta.plot(times, dt2_ratio, color = "purple")
 ax_delta.scatter(crossings, np.zeros_like(crossings), color = "red")
 
@@ -238,8 +238,8 @@ def update(i):
 
     # === Automatic Telescope Control === 
     # Assume circular orbits
-    T1 = np.sqrt((4*np.pi**2*r1**3)/(G*central_mass))
-    T2 = np.sqrt((4*np.pi**2*r2**3)/(G*central_mass))   # 1983 
+    T1 = np.sqrt((4*np.pi**2*r1**3)/(G*central_mass)) / dt
+    T2 = np.sqrt((4*np.pi**2*r2**3)/(G*central_mass)) / dt  # Divide by dt to get time index, not time value 
 
     # Shine light on mars if we detect a peak
     if times[i] in crossings:
@@ -248,8 +248,10 @@ def update(i):
         angle.set_val(angle_awayFromSun)
     # Twist telescope to follow mars 
     else: 
-        # print(f"i: {i}, calc: {(r2*(1/T2)*i)-(r1*(1/T1)*i) % (2*np.pi)}, T1: {T1}, T2: {T2}")
-        angle.set_val((r2*(1/T2)*i)-(r1*(1/T1)*i) % (2*np.pi)) 
+        # Calculate Mars Position:
+        c_x2, c_y2 = r*np.cos(2*np.pi/T2*i), r*np.sin(2*np.pi/T2*i)
+        angle_fromEarth_toMars = np.arctan2(positions_1[i][1]-c_y2, positions_1[i][0]-c_x2)
+        angle.set_val(angle_fromEarth_toMars)
 
     for arrow in [pert_arrow, mars_arrow]:
         if arrow is not None:
