@@ -4,7 +4,6 @@ from matplotlib.widgets import Button, Slider
 from matplotlib.animation import FuncAnimation
 from scipy.signal import find_peaks
 from matplotlib.patches import Circle
-from matplotlib.patches import Wedge
 
 class OrbitalPlots:
     def __init__(self, positions_list, ratio_vals, corr_vals, times_years,
@@ -134,7 +133,7 @@ class OrbitalPlots:
 
 
         colors = plt.cm.tab10(np.linspace(0, 1, len(self.positions_list)))
-        self._flashlight_patch=None; self._flashlight_active=False
+        self._flashlight_lines=[]; self._flashlight_active=False
         markers = []
         for i, pos in enumerate(self.positions_list):
             ax_orbit.plot(pos[:, 0], pos[:, 1], '-', alpha=0.3, color=colors[i], label=f"Body {i}")
@@ -216,17 +215,9 @@ class OrbitalPlots:
             ratio_line2.set_data(self.times_ratio[:idx+1], self.ratio_vals_smooth[:idx+1])
             time_marker2.set_xdata([self.times_ratio[idx], self.times_ratio[idx]])
 
-            # --- Flashlight (general slider time): recompute for t_now - t* ---
-            if getattr(self,'_flashlight_active',False) and self._flashlight_patch is not None:
-                t_now_y = float(self.times_ratio[idx]); dty = t_now_y - getattr(self,'_t_star_y', t_now_y)
-                theta_center = getattr(self,'_theta_star',0.0) + getattr(self,'_omega_rel',0.0)*dty
-                dtheta = abs(getattr(self,'_omega_max',0.0))*abs(dty)
-                theta1, theta2 = sorted((np.degrees(theta_center - dtheta), np.degrees(theta_center + dtheta)))
-                ex,ey = self.positions_list[1][idx]   # flashlight originates at Earth (current index)
-                self._flashlight_patch.set_center((ex,ey))
-                self._flashlight_patch.set_radius(getattr(self,'_R_wedge', self.xlim))
-                self._flashlight_patch.set_theta1(theta1); self._flashlight_patch.set_theta2(theta2)
-                self._flashlight_patch.set_zorder(0.5)
+            # --- Flashlight update based on stored Mars confidence positions ---
+            if getattr(self, '_flashlight_active', False):
+                self._update_flashlight(idx, ax_orbit)
 
             # Detect crossings of ratio peaks between last index and current index (handles wrap-around)
             peaks = np.asarray(self.ratio_peaks_all, dtype=int)
@@ -266,9 +257,17 @@ class OrbitalPlots:
                 mean_cos = np.mean(cos_array)
                 std_cos = np.std(cos_array)
                 angles = np.degrees(np.arccos(np.clip(cos_array, -1, 1)))
+
                 print(f"Mean cosine={mean_cos:.4f}, Std={std_cos:.4f}, "
                     f"Mean angle={np.mean(angles):.2f}°, Std angle={np.std(angles):.2f}°")
                 self.paused2 = True
+
+                # Recompute Mars confidence positions based on updated pause_events.
+                try:
+                    ep = self.estimate_earth_period(idx)
+                    self.track_mars_after_synodic_period(ep)
+                except Exception:
+                    pass
 
             self._last_idx2 = idx
             peak_dots2.set_data(self.times_ratio[self.ratio_peaks_all], self.ratio_vals_smooth[self.ratio_peaks_all])
@@ -289,130 +288,423 @@ class OrbitalPlots:
                                 interval=20, repeat=True)
         ax_orbit.legend()
         update_fig2(0)
-    # ============================================================
-    # ================ Synodic Period Calculation ================
-    # ============================================================
-    def peak_stats_and_kepler(self, which='ratio', unit='years', mu=None, sun_idx=0, earth_idx=1):
-        import numpy as np
-        if which not in ('ratio','cosine'): raise ValueError("which must be 'ratio' or 'cosine'")
-        peaks = self.ratio_peaks_all if which=='ratio' else getattr(self,'cos_peaks',np.array([]))
-        if peaks is None or len(peaks)<2:
-            return {'count':0,'separations':np.array([]),'median':np.nan,'mean':np.nan,'std':np.nan,'unit':unit,'which':which,
-                    'earth_T_kepler_days':np.nan,'earth_T_kepler_years':np.nan,'synodic_median_years':np.nan,
-                    'mars_T_from_synodic_years':np.nan,'mars_T_from_synodic_days':np.nan}
-        tY = self.times_ratio.astype(float)                          # years
-        sepY = np.diff(tY[peaks])                                    # years between consecutive peaks
-        conv = 1.0 if unit=='years' else 365.25 if unit=='days' else 365.25*24.0 if unit=='hours' else (_ for _ in ()).throw(ValueError("unit must be 'years','days','hours'"))
-        sep = sepY*conv
-        stats = {'count':len(sep),'separations':sep,'median':float(np.nanmedian(sep)),'mean':float(np.nanmean(sep)),'std':float(np.nanstd(sep)),'unit':unit,'which':which}
-        # --- Kepler Earth period from ⟨r⟩ (requires mu = G*M_sun) ---
-        if mu is not None:
-            r = self.positions_list[earth_idx]-self.positions_list[sun_idx]   # meters
-            a_mean = float(np.nanmean(np.linalg.norm(r,axis=1)))              # meters
-            T_earth_s = 2*np.pi*np.sqrt(a_mean**3/mu)                         # seconds
-            T_earth_days = T_earth_s/86400.0; T_earth_years = T_earth_days/365.25
-        else:
-            T_earth_days = np.nan; T_earth_years = np.nan
-        stats.update({'earth_T_kepler_days':float(T_earth_days),'earth_T_kepler_years':float(T_earth_years)})
-        # --- Mars sidereal period from synodic median (use ratio-peak spacing as S) ---
-        S_years = float(np.nanmedian(sepY))                                   # synodic in years
-        stats['synodic_median_years'] = S_years
-        if np.isfinite(T_earth_years) and np.isfinite(S_years) and S_years>0:
-            # decide superior vs inferior planet branch
-            # superior (e.g., Mars): S >= P_E ⇒ P_M = 1/(1/P_E - 1/S)
-            # inferior (e.g., Venus): S <  P_E ⇒ P = 1/(1/P_E + 1/S)
-            if S_years >= T_earth_years:
-                denom = (1.0/T_earth_years - 1.0/S_years)
-            else:
-                denom = (1.0/T_earth_years + 1.0/S_years)
-            P_mars_years = 1.0/denom if denom!=0 else np.nan
-            P_mars_days = P_mars_years*365.25
-        else:
-            P_mars_years = np.nan; P_mars_days = np.nan
-        stats.update({'mars_T_from_synodic_years':float(P_mars_years),'mars_T_from_synodic_days':float(P_mars_days)})
-        # cache (optional)
-        if which=='ratio': self._ratio_peak_stats=stats
-        else: self._cos_peak_stats=stats
-        return stats
-    def mars_distance_from_period(self, mu=None, period_days=None):
-        if mu is None or period_days is None or not np.isfinite(period_days) or period_days<=0:
-            return np.nan
-        T = period_days * 86400.0
-        r = ((T**2 * mu) / (4*np.pi**2))**(1/3)
-        return float(r)
-    def _flashlight_setup_from_last_event(self, idx_window=6, safety=1.1, sun_idx=0, earth_idx=1, mars_idx=2):
-        if not hasattr(self,'pause_events') or len(self.pause_events)==0: return False
-        p, slider_idx, delta_steps = self.pause_events[-1]                    # last recorded event
-        # lag in *steps* was measured when event happened; convert to years
-        if len(self.times_ratio)<2: return False
-        dt_step_y = float(self.times_ratio[1]-self.times_ratio[0])
-        t_pause_y = float(self.times_ratio[slider_idx%len(self.times_ratio)])
-        t_star_y  = t_pause_y - np.median([e[2] for e in self.pause_events])*dt_step_y  # robust t*
-        # geocentric angle series θ(t) for Earth→Mars
-        d = (self.positions_list[mars_idx]-self.positions_list[earth_idx])[:len(self.times_ratio)]
-        theta = np.unwrap(np.arctan2(d[:,1], d[:,0]))
-        # index near t*
-        i_star = int(np.clip(np.searchsorted(self.times_ratio, t_star_y)-1, 1, len(self.times_ratio)-2))
-        k = int(max(2, idx_window))
-        lo, hi = max(1, i_star-k), min(len(theta)-2, i_star+k)
-        # instantaneous relative angular rate (central diff) and a conservative bound in rad/year
-        omega_rel = float((theta[i_star+1]-theta[i_star-1])/(2*dt_step_y))
-        omega_max = float(np.max(np.abs(np.diff(theta[lo:hi+1])))/dt_step_y)*safety
-        # flashlight radius: prefer Kepler radius if set, else fall back to observed max Mars distance
-        if hasattr(self,'mars_ref_radius') and np.isfinite(self.mars_ref_radius):
-            R = float(self.mars_ref_radius*1.05)
-        else:
-            R = float(1.05*np.nanmax(np.linalg.norm(self.positions_list[mars_idx]-self.positions_list[sun_idx],axis=1)))
-        # stash state
-        self._t_star_y = t_star_y; self._theta_star = float(theta[i_star]); self._omega_rel = omega_rel; self._omega_max = omega_max; self._R_wedge = R
-        return True
-    
-    def toggle_flashlight(self, ax_orbit, colors, earth_idx=1):
-        import numpy as np
-        if getattr(self,'_flashlight_active',False):
-            try:
-                if self._flashlight_patch: self._flashlight_patch.remove()
-            except Exception: pass
-            self._flashlight_patch=None; self._flashlight_active=False; return
-        
-        if not self._flashlight_setup_from_last_event():
-            # Fallback: try to build a provisional setup from the current slider index
-            try:
-                idx = int(getattr(self,'current_idx2', 0))
-                self._provisional_flashlight_setup(idx)
-            except Exception:
-                print("[flashlight] No pause_events yet; press Play until the first auto-pause, then try again.")
-                return
-            
-        # create the wedge once; angles/radius/center will be updated each frame
-        ex,ey = self.positions_list[earth_idx][0]
-        self._flashlight_patch = Wedge(center=(ex,ey), r=self._R_wedge, theta1=0, theta2=0, width=None, ec=colors[earth_idx], lw=1.5, ls='--', alpha=0.85, fill=True)
-        self._flashlight_patch.set_alpha(0.17); ax_orbit.add_patch(self._flashlight_patch)
-        self._flashlight_active=True
-        # initialize wedge geometry immediately (works even if paused)
-        try:
-            idx = int(getattr(self,'current_idx2', 0))
-            t_now_y = float(self.times_ratio[idx]); dty = t_now_y - getattr(self,'_t_star_y', t_now_y)
-            theta_center = getattr(self,'_theta_star',0.0) + getattr(self,'_omega_rel',0.0)*dty
-            dtheta = abs(getattr(self,'_omega_max',0.0))*abs(dty)
-            theta1, theta2 = sorted((np.degrees(theta_center - dtheta), np.degrees(theta_center + dtheta)))
-            ex,ey = self.positions_list[1][idx]
-            self._flashlight_patch.set_center((ex,ey))
-            self._flashlight_patch.set_radius(getattr(self,'_R_wedge', self.xlim))
-            self._flashlight_patch.set_theta1(theta1); self._flashlight_patch.set_theta2(theta2)
-            self._flashlight_patch.set_zorder(0.5)
-            ax_orbit.figure.canvas.draw_idle()
-        except Exception:
-            pass
 
-    def _provisional_flashlight_setup(self, idx, idx_window=6, safety=1.1, sun_idx=0, earth_idx=1, mars_idx=2):
-        # Use the most recent peak at or before idx (if any); otherwise use idx itself.
-        peaks = np.asarray(self.ratio_peaks_all, dtype=int)
-        if len(self.times_ratio)<2: raise RuntimeError("not enough samples")
-        t_now_y = float(self.times_ratio[int(np.clip(idx,0,len(self.times_ratio)-1))])
-        prev_peaks = peaks[peaks<=idx] if len(peaks)>0 else np.array([],int)
-        p = int(prev_peaks[-1]) if len(prev_peaks)>0 else int(idx)
-        # emulate a zero-lag event at current slider location
-        self.pause_events = getattr(self,'pause_events', [])
-        self.pause_events.append((p, idx, 0))
-        if not self._flashlight_setup_from_last_event(): raise RuntimeError("provisional setup failed")
+    # ============================================================
+    # =================== Earth Period Estimate ==================
+    # ============================================================
+    def estimate_earth_period(self, idx):
+        """
+        Approximate Earth's orbital period (in years) using positions up to the current slider index.
+        idx : int
+            Time index (inclusive) along times_years/positions_list to use for the estimate.
+        """
+        if idx < 1:
+            return None
+
+        idx = min(idx, len(self.times_years) - 1)
+
+        # Vector from Sun to Earth over time
+        rel = self.positions_list[1][:idx+1] - self.positions_list[0][:idx+1]
+        angles = np.unwrap(np.arctan2(rel[:, 1], rel[:, 0]))
+
+        net_angle = angles[-1] - angles[0]
+        rotations = net_angle / (2 * np.pi)
+        if rotations <= 0:
+            return None
+
+        return (self.times_years[idx] - self.times_years[0]) / rotations
+
+    # ============================================================
+    # =========== Synodic Period Estimates from stops ============
+    # ============================================================
+    def synodic_period_estimates(self):
+        """
+        Use only recorded slider stop events to compute gaps between stops.
+        Stores and returns index differences, real-time differences (years),
+        and their mean/std. Returns None if fewer than 2 stops exist.
+        """
+        events = getattr(self, "pause_events", [])
+        if len(events) < 2:
+            self.synodic_index_diffs = []
+            self.synodic_time_diffs = []
+            self.synodic_mean = None
+            self.synodic_std = None
+            return None
+
+        slider_indices = np.array([int(e[1]) for e in events], dtype=int)
+        idx_diffs = np.diff(slider_indices)
+
+        times = self.times_ratio[slider_indices]
+        time_diffs = np.diff(times)
+
+        self.synodic_index_diffs = idx_diffs
+        self.synodic_time_diffs = time_diffs
+        self.synodic_mean = float(np.mean(time_diffs))
+        self.synodic_std = float(np.std(time_diffs))
+
+        return {
+            "count": len(slider_indices),
+            "index_differences": idx_diffs,
+            "time_differences": time_diffs,
+            "mean": self.synodic_mean,
+            "std": self.synodic_std,
+        }
+
+    # ============================================================
+    # =========== Mars Period Estimate (from synodic) ============
+    # ============================================================
+    def mars_period_estimate(self, earth_period_years):
+        """
+        Estimate Mars' orbital period using the mean synodic period and Earth period.
+        Computes a Mars period for each synodic interval, stores samples,
+        and returns dict with mean/std/samples; None if synodic stats are unavailable.
+        """
+        stats = self.synodic_period_estimates()
+        if not stats or stats["mean"] is None or earth_period_years is None:
+            return None
+
+        E = float(earth_period_years)  # Earth period (years)
+        samples = []
+        for S in np.atleast_1d(stats["time_differences"]):
+            S = float(S)
+            denom = (1.0 / E) - (1.0 / S)
+            if denom == 0:
+                continue
+            samples.append(1.0 / denom)
+
+        if len(samples) == 0:
+            return None
+
+        samples_arr = np.asarray(samples, dtype=float)
+        self.mars_period_samples = samples_arr
+        mean_val = float(np.mean(samples_arr))
+        std_val = float(np.std(samples_arr))
+
+        return {"mean": mean_val, "std": std_val, "samples": samples_arr}
+
+    # ============================================================
+    # ======= Mars Orbital Radius Estimate (Kepler's 3rd) ========
+    # ============================================================
+    def mars_radius_estimates(self, earth_period_years, sun_mass=1.9885e30, G=6.67430e-11):
+        """
+        Use Mars period samples to estimate orbital radius via Kepler's 3rd law.
+        Assumes Earth-period-based Mars period samples are in years.
+        Returns dict with mean/std/samples (meters), or None if unavailable.
+        """
+        period_info = self.mars_period_estimate(earth_period_years)
+        if not period_info or "samples" not in period_info:
+            return None
+
+        samples_years = np.asarray(period_info["samples"], dtype=float)
+        if samples_years.size == 0:
+            return None
+
+        sec_per_year = 365.25 * 24 * 3600.0
+        P_sec = samples_years * sec_per_year
+
+        # Kepler 3rd: P^2 = 4π^2 a^3 / (G M) => a = [G M (P/2π)^2]^(1/3)
+        factor = G * sun_mass
+        radii = (factor * (P_sec / (2 * np.pi))**2) ** (1.0 / 3.0)
+
+        self.mars_radius_samples = radii
+        mean_r = float(np.mean(radii))
+        std_r = float(np.std(radii))
+        
+        # 99% confidence interval
+        cmin = mean_r - 2.6 * std_r
+        cmax = mean_r + 2.6 * std_r
+
+        return {
+            "mean": mean_r,
+            "std": std_r,
+            "samples": radii,
+            "conf_min": cmin,
+            "conf_max": cmax,
+        }
+
+    # ============================================================
+    # =========== Mars Angular Velocity Estimates (omega) =========
+    # ============================================================
+    def mars_omega_estimates(self, earth_period_years):
+        """
+        Compute angular velocity (rad/s) for each Mars period sample.
+        Stores samples and returns a dict with mean/std/samples, or None if unavailable.
+        """
+        period_info = self.mars_period_estimate(earth_period_years)
+        if not period_info or "samples" not in period_info:
+            return None
+
+        samples_years = np.asarray(period_info["samples"], dtype=float)
+        if samples_years.size == 0:
+            return None
+
+        sec_per_year = 365.25 * 24 * 3600.0
+        omegas = 2 * np.pi / (samples_years * sec_per_year)
+
+        self.mars_omega_samples = omegas
+        mean_omega = float(np.mean(omegas))
+        std_omega = float(np.std(omegas))
+
+        # 99% confidence interval
+        conf_min = mean_omega - 2.6 * std_omega
+        conf_max = mean_omega + 2.6 * std_omega
+
+        return {
+            "mean": mean_omega,
+            "std": std_omega,
+            "samples": omegas,
+            "conf_min": conf_min,
+            "conf_max": conf_max,
+        }
+
+    # ============================================================
+    # =========== Tracking Mars After Synodic Period =============
+    # ============================================================
+    def track_mars_after_synodic_period(self, earth_period_years):
+        """
+        For each pause_event segment, assume Mars is collinear with Sun–Earth at the pause
+        (opposite Earth). Using 95% confidence bounds on omega and radius, generate the four
+        possible Mars positions (rmin/ rmax × omegamin/ omegamax) for each timestep until the
+        next pause. Stores segments in self.mars_conf_position_segments.
+        """
+        # restart the list every time we recompute tracking
+        self.mars_conf_position_segments = []
+
+        rad_info = self.mars_radius_estimates(earth_period_years)
+        omega_info = self.mars_omega_estimates(earth_period_years)
+        if not rad_info or not omega_info:
+            return None
+
+        # if confidence bounds collapsed, bail
+        if any(v is None for v in (rad_info.get("conf_min"), rad_info.get("conf_max"),
+                                   omega_info.get("conf_min"), omega_info.get("conf_max"))):
+            return None
+
+        r_lo = float(rad_info.get("conf_min", 0.0))
+        r_hi = float(rad_info.get("conf_max", 0.0))
+        # enforce non-negative, ordered radii; avoid degenerate zero span
+        r_min = max(0.0, min(r_lo, r_hi))
+        r_max = max(r_min, max(r_lo, r_hi))
+        if r_max <= 0:
+            return None
+        if r_min <= 0:
+            r_min = 0.1 * r_max  # give a small span if lower bound collapsed
+
+        o_lo = float(omega_info.get("conf_min", 0.0))
+        o_hi = float(omega_info.get("conf_max", 0.0))
+        # enforce positive angular speeds and ordering
+        o_min = min(abs(o_lo), abs(o_hi))
+        o_max = max(abs(o_lo), abs(o_hi))
+        if o_max <= 0:
+            return None
+        if o_min <= 0:
+            o_min = 0.1 * o_max
+
+        events = sorted(getattr(self, "pause_events", []), key=lambda e: e[1])
+        if len(events) == 0:
+            # fallback: synthesize from ratio peaks so we can visualize something
+            if len(self.ratio_peaks_all) >= 2:
+                events = [(int(p), int(p), 0) for p in self.ratio_peaks_all]
+            else:
+                return None
+
+        sec_per_year = 365.25 * 24 * 3600.0
+        segments = []
+        for i, ev in enumerate(events):
+            start_idx = int(ev[1])
+            if start_idx >= len(self.times_ratio):
+                continue
+            end_idx = int(events[i + 1][1]) if i + 1 < len(events) else len(self.times_ratio) - 1
+            end_idx = min(end_idx, len(self.times_ratio) - 1)
+            if end_idx <= start_idx:
+                continue
+
+            sun_pos = self.positions_list[0][start_idx]
+            earth_pos = self.positions_list[1][start_idx]
+            dir_vec = earth_pos - sun_pos
+            norm = np.linalg.norm(dir_vec)
+            if norm == 0:
+                continue
+            u_dir = dir_vec / norm  # assume Mars is collinear on the same side as Earth during pause event
+            theta0 = np.arctan2(u_dir[1], u_dir[0])
+
+            times_seg = self.times_ratio[start_idx : end_idx + 1]
+            dt_years = times_seg - times_seg[0]
+            dt_sec = dt_years * sec_per_year
+
+            omegas = [o_min, o_min, o_max, o_max]
+            radii = [r_min, r_max, r_min, r_max]
+
+            positions = np.zeros((len(times_seg), 4, 2))
+            for j in range(4):
+                theta = theta0 + omegas[j] * dt_sec
+                positions[:, j, 0] = sun_pos[0] + radii[j] * np.cos(theta)
+                positions[:, j, 1] = sun_pos[1] + radii[j] * np.sin(theta)
+
+            segments.append(
+                {"start_idx": start_idx, "end_idx": end_idx, "positions": positions}
+            )
+
+        self.mars_conf_position_segments = segments
+        return segments
+
+    # ============================================================
+    # =========== Flashlight / Telescope Utilities ===============
+    # ============================================================
+    def _ensure_flashlight_lines(self, ax_orbit, count=4):
+        """
+        Create and store the flashlight line artists if they don't exist.
+        """
+        lines = getattr(self, "_flashlight_lines", [])
+        missing = max(0, count - len(lines))
+        for _ in range(missing):
+            (line,) = ax_orbit.plot([], [], color='yellow', lw=1.5, alpha=0.8)
+            line.set_visible(False)
+            lines.append(line)
+        self._flashlight_lines = lines
+        return lines
+
+    def _hide_flashlight_lines(self):
+        for line in getattr(self, "_flashlight_lines", []):
+            line.set_visible(False)
+
+    def toggle_flashlight(self, ax_orbit, colors=None):
+        """
+        Toggle the Mars confidence flashlight on/off.
+        """
+        self._flashlight_active = not getattr(self, "_flashlight_active", False)
+        if not self._flashlight_active:
+            self._hide_flashlight_lines()
+            return
+
+        self._ensure_flashlight_lines(ax_orbit, count=4)
+
+        # Update immediately with current slider index if available; hide if no data
+        ok = False
+        try:
+            # ensure segments exist
+            ep_all = self.estimate_earth_period(len(self.times_years) - 1)
+            self.track_mars_after_synodic_period(ep_all)
+            idx = int(getattr(self, "current_idx2", 0))
+            ok = self._update_flashlight(idx, ax_orbit)
+        except Exception:
+            ok = False
+        if not ok:
+            self._hide_flashlight_lines()
+
+    def _update_flashlight(self, idx, ax_orbit):
+        """
+        Plot yellow lines from Earth to each possible Mars position for this timestep.
+        Returns True if updated, False otherwise.
+        """
+        if not getattr(self, "_flashlight_active", False):
+            return False
+
+        lines = self._ensure_flashlight_lines(ax_orbit, count=4)
+
+        segments = getattr(self, "mars_conf_position_segments", [])
+        if not segments:
+            # try to recompute if we have an Earth period estimate
+            try:
+                ep = self.estimate_earth_period(len(self.times_years) - 1)
+                self.track_mars_after_synodic_period(ep)
+                segments = getattr(self, "mars_conf_position_segments", [])
+            except Exception:
+                segments = []
+        if not segments:
+            # fallback: aim opposite Earth with max radius if available
+            rad_info = self.mars_radius_estimates(self.estimate_earth_period(idx))
+            if not rad_info or rad_info.get("conf_max") is None:
+                self._hide_flashlight_lines()
+                return False
+            radii = [val for val in (rad_info.get("conf_min"), rad_info.get("conf_max")) if val and val > 0]
+            earth_pos = self.positions_list[1][idx]
+            sun_pos = self.positions_list[0][idx]
+            dir_vec = earth_pos - sun_pos
+            norm = np.linalg.norm(dir_vec)
+            if norm == 0 or len(radii) == 0:
+                self._hide_flashlight_lines()
+                return False
+            u_dir = dir_vec / norm
+            pos_candidates = np.array([sun_pos + r * u_dir for r in radii])
+        else:
+            # Find segment containing idx; if none, pick nearest and clamp
+            seg = None
+            for s in segments:
+                if s["start_idx"] <= idx <= s["end_idx"]:
+                    seg = s
+                    break
+            if seg is None:
+                seg = min(segments, key=lambda s: min(abs(idx - s["start_idx"]), abs(idx - s["end_idx"])))
+
+            t_idx = idx - seg["start_idx"]
+            # clamp to valid range
+            t_idx = max(0, min(t_idx, len(seg["positions"]) - 1))
+
+            pos_candidates = seg["positions"][t_idx]  # shape (4,2)
+        earth_pos = self.positions_list[1][idx]
+
+        pos_candidates = np.atleast_2d(pos_candidates)
+        # Grow line list if we have more candidates than lines
+        if len(lines) < len(pos_candidates):
+            extra = len(pos_candidates) - len(lines)
+            self._ensure_flashlight_lines(ax_orbit, count=len(pos_candidates))
+            lines = self._flashlight_lines
+
+        ok = False
+        for i, line in enumerate(lines):
+            if i < len(pos_candidates):
+                target = pos_candidates[i]
+                line.set_data([earth_pos[0], target[0]], [earth_pos[1], target[1]])
+                line.set_visible(True)
+                line.set_zorder(0.5)
+                ok = True
+            else:
+                line.set_visible(False)
+        if not ok:
+            self._hide_flashlight_lines()
+        return ok
+
+    # ============================================================
+    # =========== Plot stored Mars confidence positions ==========
+    # ============================================================
+    def plot_mars_conf_positions(self):
+        """
+        Create a static plot showing Earth, Mars, and all stored Mars confidence positions
+        from track_mars_after_synodic_period(). Returns (fig, ax) or None if no data.
+        """
+        segs = getattr(self, "mars_conf_position_segments", None)
+        if not segs:
+            fig, ax = plt.subplots(figsize=(7, 7))
+            ax.set_title("Mars Confidence Positions")
+            ax.text(0.5, 0.5, "No Mars confidence positions available.", ha='center', va='center')
+            ax.axis('off')
+            return fig, ax
+
+        all_pts = []
+        for seg in segs:
+            pts = seg.get("positions")
+            if pts is not None:
+                all_pts.append(pts.reshape(-1, 2))
+        if not all_pts:
+            print("No Mars confidence positions available. Run track_mars_after_synodic_period first.")
+            return None
+
+        all_pts = np.vstack(all_pts)
+
+        fig, ax = plt.subplots(figsize=(7, 7))
+        ax.set_aspect('equal')
+        ax.grid(True)
+        ax.set_title("Mars Confidence Positions")
+        ax.set_xlim(-self.xlim, self.xlim)
+        ax.set_ylim(-self.ylim, self.ylim)
+
+        # Plot Earth and Mars actual trajectories for reference
+        if len(self.positions_list) > 1:
+            ax.plot(self.positions_list[1][:, 0], self.positions_list[1][:, 1], 'b-', alpha=0.2, label="Earth path")
+        if len(self.positions_list) > 2:
+            ax.plot(self.positions_list[2][:, 0], self.positions_list[2][:, 1], 'r-', alpha=0.2, label="Mars path")
+
+        ax.scatter(all_pts[:, 0], all_pts[:, 1], c='gold', s=5, alpha=0.6, label="Mars conf points")
+        ax.legend()
+        return fig, ax

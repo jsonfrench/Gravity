@@ -1,5 +1,6 @@
 import rebound
 import numpy as np
+import matplotlib.pyplot as plt
 from orbitalplots import OrbitalPlots
 
 # ============================================================
@@ -167,26 +168,49 @@ plots = OrbitalPlots(
     prominence_val=0.05
 )
 
-
-# ============================================================
-# ============== Compute and print peak statistics ===========
-# ============================================================
-
-mu = G*mass_sun
-res = plots.peak_stats_and_kepler(which='ratio', unit='days', mu=mu, sun_idx=0, earth_idx=1)
-r_mars = plots.mars_distance_from_period(mu=mu, period_days=res['mars_T_from_synodic_days'])
-print("------------ Earth & Mars Periods ------------")
-print(f"Synodic Period Approximation: {res['median']:.2f} {res['unit']}")
-print(f"Earth period (Kepler, a≈⟨r⟩): {res['earth_T_kepler_days']:.2f} days ({res['earth_T_kepler_years']:.6f} years)")
-print(f"Mars period (from synodic): {res['mars_T_from_synodic_days']:.2f} days ({res['mars_T_from_synodic_years']:.6f} years)")
-print("------------ Mars Orbital Radius (Kepler Inverse) ------------")
-print(f"Estimated Mars distance from Sun ≈ {r_mars:.3e} m ({r_mars/1.496e11:.3f} AU)")
-
-# plots.mars_ref_radius = plots.mars_distance_from_period(mu=mu, period_days=res['mars_T_from_synodic_days'])
-
+# Build the main figure (combined orbit + ratio/cosine).
 plots.create_ratio_cosine_figure()
-
-# plots.create_orbit_figure()
 
 plots.show_plots()
 
+# Estimate Earth's orbital period using all available data.
+earth_period_years = plots.estimate_earth_period(len(times_years) - 1)
+print("==========System Periodic Information==========")
+print("Estimated Earth period (years):", earth_period_years)
+
+# Synodic period estimates from recorded slider stops (peaks) so far.
+synodic_stats = plots.synodic_period_estimates()
+if synodic_stats and synodic_stats["count"] > 1:
+    print(
+        "Synodic Period Estimates -> stops used: %s, mean Δt (years): %s, std Δt (years): %s"
+        % (synodic_stats["count"], synodic_stats["mean"], synodic_stats["std"])
+    )
+else:
+    print("Synodic Period Estimates: need more stops.")
+
+# Mars period estimate (outer planet) using mean synodic period and Earth period.
+mars_period = plots.mars_period_estimate(earth_period_years)
+if mars_period is not None:
+    if isinstance(mars_period, dict):
+        print("Mean Estimated Mars period (years):", mars_period.get("mean"))
+        if mars_period.get("std") is not None:
+            print("Mars period std (years):", mars_period.get("std"))
+    else:
+        print("Estimated Mars period (years):", mars_period)
+else:
+    print("Mars period estimate unavailable (need synodic data).")
+
+# Mars orbital radius estimate from period samples (Kepler's 3rd law).
+mars_radius = plots.mars_radius_estimates(earth_period_years)
+if mars_radius:
+    print("Mean Estimated Mars radius (AU):", mars_radius.get("mean")/r_earth)
+    if mars_radius.get("std") is not None:
+        print("Mars radius std (AU):", mars_radius.get("std")/r_earth)
+else:
+    print("Mars radius estimate unavailable (need Mars period samples).")
+
+# After interaction, rebuild Mars confidence segments and plot them if available.
+plots.track_mars_after_synodic_period(earth_period_years)
+conf_plot = plots.plot_mars_conf_positions()
+if conf_plot is not None:
+    plt.show()
