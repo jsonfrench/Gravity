@@ -142,7 +142,7 @@ ax_distance     = plt.axes([0.1, 0.50, 0.15, 0.03])
 ax_resolution   = plt.axes([0.1, 0.45, 0.15, 0.03])
 angle       = Slider(ax_angle, "Angle", 0, 2*np.pi, valinit = 0)
 distance    = Slider(ax_distance, "Distance", 0, max(np.amax(positions_1), np.amax(positions_2)) * 2 * np.sqrt(2), valinit = positions_1[0,0]*0.5)
-resolution  = Slider(ax_resolution, "Resolution", 0, 1, valinit=2*np.pi*distance.val/16)
+resolution  = Slider(ax_resolution, "Resolution", 0, 2*np.pi*distance.val, valinit=2*np.pi*distance.val/16)
 resolution_val = resolution.val # workaround because adjusting slider bounds sucks
 field_of_view = resolution_val / distance.val
 ax_angle.set_title("Telescope Controls")
@@ -155,14 +155,16 @@ def update_distance(val):
     global field_of_view
     global resolution_val
     resolution_val = min(resolution_val, 2*np.pi*distance.val)
-    resolution.set_val(resolution_val/(2*np.pi*distance.val)) 
-    field_of_view = resolution_val / distance.val 
+    resolution.set_val(resolution_val)
+    resolution.valmax = 2*np.pi*distance.val
+    ax_resolution.set_xlim(resolution.valmin, resolution.valmax)
+    field_of_view = resolution_val / distance.val
     flashlight.set_theta1((angle.val*180/np.pi)-(field_of_view*180/np.pi/2))
     flashlight.set_theta2((angle.val*180/np.pi)+(field_of_view*180/np.pi/2))
 def update_resolution(val):
     global field_of_view
     global resolution_val
-    resolution_val = resolution.val*2*np.pi*distance.val
+    resolution_val = resolution.val
     field_of_view = resolution_val / distance.val 
     flashlight.set_theta1((angle.val*180/np.pi)-(field_of_view*180/np.pi/2))
     flashlight.set_theta2((angle.val*180/np.pi)+(field_of_view*180/np.pi/2))    
