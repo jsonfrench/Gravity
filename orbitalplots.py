@@ -1,33 +1,30 @@
+# OrbitalPlots class file
+
+# computations
 import numpy as np
+
+# display/animation
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button, Slider
 from matplotlib.animation import FuncAnimation
-from scipy.signal import find_peaks
-from matplotlib.patches import Circle
+
+# Signal analysis packages
+from scipy.signal import find_peaks, peak_widths, stft
+from numpy.fft import rfft, rfftfreq
+import pywt
+
+# change display backend for animations
+import matplotlib
+matplotlib.use('Qt5Agg')
 
 class OrbitalPlots:
     def __init__(self, positions_list, ratio_vals, corr_vals, times_years,
                  xlim=1, ylim=1,
                  mov_avg_len=19, prominence_val=0.05):
-        """
-        positions_list : list of np.ndarray
-            Each array shape (n_steps, 2), for each body.
-        ratio_vals : np.ndarray
-            Array of ratio values (same length as times_years or shorter).
-        corr_vals : np.ndarray
-            Array of cosine correlation values (same length as times_years or shorter).
-        times_years : np.ndarray
-            Time array (in years).
-        xlim, ylim : tuple
-            Plot limits for both figures.
-        mov_avg_len : int
-            Length of moving average smoothing.
-        prominence_val : float
-            Peak detection prominence.
-        """
-
         self.positions_list = positions_list
+        # clean the ratio array to remove any instances of nan?
         self.ratio_vals = ratio_vals
+
         self.corr_vals = corr_vals
         self.times_years = times_years
         self.xlim = xlim
@@ -39,22 +36,27 @@ class OrbitalPlots:
         self.idx = 0
         self.paused = True
 
-        # --- Derived arrays ---
+        # Derived arrays
         self.ratio_vals_smooth = np.convolve(ratio_vals, np.ones(mov_avg_len)/mov_avg_len, mode='valid')
         self.corr_vals_smooth = np.convolve(corr_vals, np.ones(mov_avg_len)/mov_avg_len, mode='valid')
         self.times_ratio = times_years[:len(self.ratio_vals_smooth)]
 
-        # --- Peak detection ---
+        # Peak detection (full arrays)
         self.ratio_peaks_all, _ = find_peaks(self.ratio_vals_smooth, prominence=prominence_val)
         cos_peaks_all, _ = find_peaks(self.corr_vals_smooth, prominence=prominence_val)
         self.cos_peaks = np.array([cp for cp in cos_peaks_all if self.corr_vals_smooth[cp] >= 0.9], dtype=int)
 
+        # Initialize state for ratio figure
+        self.paused2 = True
+        self.current_idx2 = 0
+        self.ratio_peaks_seen = set()
+        self.cos_values_at_ratio_peaks = []
+        self.timesteps_per_frame = 1  # controlled by speed slider
+
         print(f"Initialized OrbitalPlots with {len(positions_list)} orbits.")
         print(f"Found {len(self.ratio_peaks_all)} ratio peaks, {len(self.cos_peaks)} cosine peaks ≥ 0.9.")
 
-    # ============================================================
-    # =============== FIGURE 1: Orbital Motion ===================
-    # ============================================================
+    # ========================= ORBIT FIGURE =========================
     def create_orbit_figure(self):
         fig, ax = plt.subplots(figsize=(7, 7))
         ax.set_xlim(-self.xlim, self.xlim)
@@ -63,10 +65,7 @@ class OrbitalPlots:
         ax.grid(True)
         ax.set_title("Orbital Motion")
 
-        # Distinct colors
         colors = plt.cm.tab10(np.linspace(0, 1, len(self.positions_list)))
-
-        # Plot paths and markers
         markers = []
         for i, pos in enumerate(self.positions_list):
             ax.plot(pos[:, 0], pos[:, 1], '-', alpha=0.3, color=colors[i], label=f"Body {i}")
@@ -76,48 +75,105 @@ class OrbitalPlots:
         # Slider & button
         ax_slider = plt.axes([0.15, 0.05, 0.65, 0.03])
         self.slider = Slider(ax_slider, 'Index', 0, len(self.positions_list[0]) - 1, valinit=0, valstep=1)
-
-        ax_button = plt.axes([0.90, 0.2, 0.12, 0.05])
+        ax_button = plt.axes([0.82, 0.045, 0.1, 0.04])
         self.button = Button(ax_button, 'Play/Pause')
-
-        self.paused = True
-        self.current_idx = 0
 
         def toggle(event):
             self.paused = not self.paused
-
         self.button.on_clicked(toggle)
 
         def slider_update(val):
-            self.current_idx = int(self.slider.val)
-            update(self.current_idx)
-
+            self.idx = int(self.slider.val)
+            update(self.idx)
         self.slider.on_changed(slider_update)
 
         def update(i):
             for j, pos in enumerate(self.positions_list):
                 markers[j].set_data([pos[i, 0]], [pos[i, 1]])
 
-
         def animate(frame):
             if not self.paused:
-                self.current_idx = (self.current_idx + 1) % len(self.positions_list[0])
-                self.slider.set_val(self.current_idx)
-                update(self.current_idx)
+                self.idx = (self.idx + 1) % len(self.positions_list[0])
+                self.slider.set_val(self.idx)
+                update(self.idx)
 
-        self.anim1 = FuncAnimation(fig, animate, frames=len(self.times_years),
-                           interval=20, repeat=True)
-        ax.legend()
-        # fig.show()  # ← remove this
+        self.anim = FuncAnimation(fig, animate, frames=len(self.times_years), interval=20, repeat=True)
+        plt.legend()
         update(0)
-    def show_plots(self):
+        # fig.show()
+
+    # ========================= ORBIT FIGURE with earth overlay =========================
+    # needs an initial index to slice the overlay_positions array with len(short_time_array)
+    def create_orbit_figure_earth_overlay(self, initial_index, short_time_array, overlay_positions):
+        # Figure setup
+        fig, ax = plt.subplots(figsize=(7, 7))
+        ax.set_xlim(-self.xlim, self.xlim)
+        ax.set_ylim(-self.ylim, self.ylim)
+        ax.set_aspect('equal')
+        ax.grid(True)
+        ax.set_title("Orbital Motion with Short-Time Overlay")
+
+        L = len(short_time_array)
+        temp_positions_list = self.positions_list
+        # slice overlay_positions from initial_index to initial_index + L
+        overlay_positions_short_time = overlay_positions[initial_index:initial_index+L]
+        temp_positions_list.append(overlay_positions_short_time)
+        
+
+        # --- Update frame length to min nonempty length ---
+        L = min(len(p) for p in temp_positions_list)
+
+        # --- Plot all paths ---
+        colors = plt.cm.tab10(np.linspace(0, 1, len(temp_positions_list)))
+        markers = []
+        for i, pos in enumerate(temp_positions_list):
+            ax.plot(pos[:, 0], pos[:, 1], '-', alpha=0.3, color=colors[i], label=f"Body {i}")
+            (marker_line,) = ax.plot([], [], 'o', color=colors[i], markersize=6)
+            markers.append(marker_line)
+
+        # --- Slider + button setup ---
+        ax_slider = plt.axes([0.15, 0.05, 0.65, 0.03])
+        slider = Slider(ax_slider, 'Index', 0, L - 1, valinit=0, valstep=1)
+
+        ax_button = plt.axes([0.82, 0.045, 0.1, 0.04])
+        button = Button(ax_button, 'Play/Pause')
+
+        paused = False
+
+        def toggle(event):
+            nonlocal paused
+            paused = not paused
+
+        def update(idx):
+            for j, pos in enumerate(temp_positions_list):
+                if idx < pos.shape[0]:
+                    markers[j].set_data([pos[idx, 0]], [pos[idx, 1]])
+
+        def slider_update(val):
+            update(int(slider.val))
+
+        slider.on_changed(slider_update)
+        button.on_clicked(toggle)
+
+        # --- Animation loop ---
+        idx = 0
+
+        def animate(frame):
+            nonlocal idx
+            if not paused and L > 0:
+                idx = (idx + 1) % L
+                slider.set_val(idx)
+
+        ani = FuncAnimation(fig, animate, frames=L, interval=30, repeat=True)
+        self.ani = ani  # keep reference alive
+
         plt.show()
-    # ============================================================
-    # =========== FIGURE 2: Ratio + Cosine Animation =============
-    # ============================================================
+        return ani
+
+    # ==================== RATIO + COSINE FIGURE ====================
     def create_ratio_cosine_figure(self):
         fig2, (ax_orbit, ax_combined) = plt.subplots(2, 1, figsize=(7, 9))
-        plt.subplots_adjust(bottom=0.35, hspace=0.35)  # ← make room for extra slider
+        plt.subplots_adjust(bottom=0.35, hspace=0.35)
 
         # Orbit panel
         ax_orbit.set_xlim(-self.xlim, self.xlim)
@@ -125,25 +181,13 @@ class OrbitalPlots:
         ax_orbit.set_aspect('equal')
         ax_orbit.set_title("Orbital Motion")
         ax_orbit.grid(True)
-        self._mars_circle=None
-        if hasattr(self,'mars_ref_radius') and np.isfinite(self.mars_ref_radius):
-            sx,sy=self.positions_list[0][0]  # Sun at first frame
-            self._mars_circle=Circle((sx,sy), float(self.mars_ref_radius), fill=False, ls='--', lw=1.5, alpha=0.8, ec='orange')
-            ax_orbit.add_patch(self._mars_circle)
-
 
         colors = plt.cm.tab10(np.linspace(0, 1, len(self.positions_list)))
-        self._flashlight_lines=[]; self._flashlight_active=False
         markers = []
         for i, pos in enumerate(self.positions_list):
             ax_orbit.plot(pos[:, 0], pos[:, 1], '-', alpha=0.3, color=colors[i], label=f"Body {i}")
             (marker_line,) = ax_orbit.plot([], [], 'o', color=colors[i], markersize=6)
             markers.append(marker_line)
-
-        #Flash Light Toggle Button
-        ax_flash = fig2.add_axes([0.88, 0.24, 0.10, 0.05])
-        self.button_flash = Button(ax_flash, 'Flashlight')
-        self.button_flash.on_clicked(lambda _ : self.toggle_flashlight(ax_orbit, colors))
 
         # Combined plot
         ax_combined.set_xlim(self.times_ratio[0], self.times_ratio[-1])
@@ -155,10 +199,8 @@ class OrbitalPlots:
 
         ax_ratio2 = ax_combined.twinx()
         ax_ratio2.set_ylabel("Accel Ratio", color='g')
-        ax_ratio2.set_ylim(
-            np.nanmin(self.ratio_vals_smooth) * 0.9,
-            np.nanmax(self.ratio_vals_smooth) * 1.1
-        )
+        ax_ratio2.set_ylim(np.nanmin(self.ratio_vals_smooth)*0.9,
+                        np.nanmax(self.ratio_vals_smooth)*1.1)
         ratio_line2, = ax_ratio2.plot([], [], 'g-')
         peak_dots2, = ax_ratio2.plot([], [], 'ro', markersize=5)
         cos_peak_dots2, = ax_combined.plot([], [], 'ro', markersize=5)
@@ -167,544 +209,823 @@ class OrbitalPlots:
         # State
         self.paused2 = True
         self.current_idx2 = 0
-        self._last_idx2 = -1
         self.ratio_peaks_seen = set()
         self.cos_values_at_ratio_peaks = []
-        self.speed_factor = 1.0  # new variable
+        self.timesteps_per_frame = 1  # default speed
 
-        self.pause_events = []  # list of (peak_idx, slider_idx, delta_steps)
+        # --- Buttons and sliders ---
+        ax_button2 = plt.axes([0.82, 0.25, 0.1, 0.04])
+        button2 = Button(ax_button2, 'Play/Pause')
+        button2.on_clicked(lambda event: setattr(self, 'paused2', not self.paused2))
 
-        # === Controls ===
-        ax_slider2 = plt.axes([0.15, 0.17, 0.65, 0.03])
-        self.slider2 = Slider(ax_slider2, 'Time idx', 0, len(self.times_ratio) - 1, valinit=0, valstep=1)
-
-        plt.subplots_adjust(bottom=0.35, right=0.86, hspace=0.35)  # add right margin
-        ax_button2 = fig2.add_axes([0.88, 0.17, 0.10, 0.05])       # attach to fig2 and push right
-        self.button2 = Button(ax_button2, 'Play/Pause')
-
-        # --- NEW speed slider ---
-        ax_speed = plt.axes([0.15, 0.10, 0.65, 0.03])
-        self.speed_slider = Slider(ax_speed, 'Speed ×', 0.1, 10.0, valinit=1.0, valstep=0.1)
-
-        def toggle2(event):
-            self.paused2 = not self.paused2
-
-        self.button2.on_clicked(toggle2)
-
+        ax_slider2 = plt.axes([0.15, 0.25, 0.65, 0.03])
+        slider2 = Slider(ax_slider2, 'Time idx', 0, len(self.times_ratio)-1, valinit=0, valstep=1)
         def slider2_update(val):
-            self.current_idx2 = int(self.slider2.val)
+            self.current_idx2 = int(val)
             update_fig2(self.current_idx2)
 
-        self.slider2.on_changed(slider2_update)
+        slider2.on_changed(slider2_update)
 
+        ax_speed = plt.axes([0.15, 0.18, 0.65, 0.03])
+        speed_slider = Slider(ax_speed, 'Speed', 1, 5, valinit=1, valstep=1)
         def speed_update(val):
-            self.speed_factor = self.speed_slider.val
+            # Scale speed relative to total length
+            total_steps = len(self.times_ratio)
+            self.timesteps_per_frame = int(val * max(1, total_steps//500))
+        speed_slider.on_changed(speed_update)
 
-        self.speed_slider.on_changed(speed_update)
-
-        # --- Update Function ---
+        # --- Update function ---
         def update_fig2(idx):
             for j, pos in enumerate(self.positions_list):
                 markers[j].set_data([pos[idx, 0]], [pos[idx, 1]])
-
-            if self._mars_circle is not None:
-                sx,sy=self.positions_list[0][idx]
-                self._mars_circle.center=(sx,sy)
 
             corr_line2.set_data(self.times_ratio[:idx+1], self.corr_vals_smooth[:idx+1])
             ratio_line2.set_data(self.times_ratio[:idx+1], self.ratio_vals_smooth[:idx+1])
             time_marker2.set_xdata([self.times_ratio[idx], self.times_ratio[idx]])
 
-            # --- Flashlight update based on stored Mars confidence positions ---
-            if getattr(self, '_flashlight_active', False):
-                self._update_flashlight(idx, ax_orbit)
-
-            # Detect crossings of ratio peaks between last index and current index (handles wrap-around)
-            peaks = np.asarray(self.ratio_peaks_all, dtype=int)
-            if self._last_idx2 == -1:
-                crossed_mask = (peaks <= idx)
-            else:
-                if idx >= self._last_idx2:
-                    crossed_mask = (peaks > self._last_idx2) & (peaks <= idx)
-                else:
-                    crossed_mask = (peaks > self._last_idx2) | (peaks <= idx)
-            new_ratio_peaks = [int(p) for p in peaks[crossed_mask] if p not in self.ratio_peaks_seen]
-
-            for p in new_ratio_peaks:
-                nearest_idx = (self.cos_peaks[np.argmin(np.abs(self.cos_peaks - p))]
-                            if len(self.cos_peaks) > 0 else None)
+            # Real-time ratio peak detection
+            ratio_partial = self.ratio_vals_smooth[:idx+1]
+            ratio_peaks_partial, _ = find_peaks(ratio_partial, prominence=self.prominence_val)
+            new_peaks = [p for p in ratio_peaks_partial if p not in self.ratio_peaks_seen]
+            for p in new_peaks:
+                nearest_idx = self.cos_peaks[np.argmin(np.abs(self.cos_peaks - p))] if len(self.cos_peaks)>0 else None
                 delta = (nearest_idx - p) if nearest_idx is not None else None
-                print(f"------------Peak Number {len(self.ratio_peaks_seen)+1}------------")
-                status = (f"{abs(delta)} timesteps to nearest cosine peak"
-                        if delta is not None else "no nearby cosine peak")
-                print(f"Ratio peak idx={p}, nearest cosine peak idx={nearest_idx}, {status}")
+                status = f"{abs(delta)} timesteps to nearest cosine peak" if delta is not None else "no nearby cosine peak"
+                print(f"Ratio peak time={self.times_years[p]}, nearest cosine peak idx={nearest_idx}, {status}")
 
                 cos_val = self.corr_vals_smooth[p]
                 self.cos_values_at_ratio_peaks.append(cos_val)
                 self.ratio_peaks_seen.add(p)
 
-                # --- NEW: record & print slider pause index and step delta ---
-                slider_pause_idx = int(idx)
-                delta_steps = int(slider_pause_idx - p)  # simple difference (no wrap)
-                self.pause_events.append((int(p), slider_pause_idx, delta_steps))
-                # Prep flashlight state right when we pause, so the button has data
-                try: self._flashlight_setup_from_last_event()
-                except Exception as _e: pass
-
-                print(f"PAUSE: slider_idx={slider_pause_idx}, ratio_peak_idx={p}, Δsteps={delta_steps}")
-
                 cos_array = np.array(self.cos_values_at_ratio_peaks)
                 mean_cos = np.mean(cos_array)
                 std_cos = np.std(cos_array)
                 angles = np.degrees(np.arccos(np.clip(cos_array, -1, 1)))
+                print(f"Mean cosine={mean_cos:.4f}, Std={std_cos:.4f}, Mean angle={np.mean(angles):.2f}°, Std angle={np.std(angles):.2f}°")
 
-                print(f"Mean cosine={mean_cos:.4f}, Std={std_cos:.4f}, "
-                    f"Mean angle={np.mean(angles):.2f}°, Std angle={np.std(angles):.2f}°")
+                # Auto-pause at peak
                 self.paused2 = True
 
-                # Recompute Mars confidence positions based on updated pause_events.
-                try:
-                    ep = self.estimate_earth_period(idx)
-                    self.track_mars_after_synodic_period(ep)
-                except Exception:
-                    pass
-
-            self._last_idx2 = idx
-            peak_dots2.set_data(self.times_ratio[self.ratio_peaks_all], self.ratio_vals_smooth[self.ratio_peaks_all])
+            # Update dots
+            if len(self.ratio_peaks_seen) > 0:
+                peak_dots2.set_data(self.times_ratio[list(self.ratio_peaks_seen)],
+                                    self.ratio_vals_smooth[list(self.ratio_peaks_seen)])
             if len(self.cos_peaks) > 0:
                 cos_peak_dots2.set_data(self.times_ratio[self.cos_peaks], self.corr_vals_smooth[self.cos_peaks])
             else:
                 cos_peak_dots2.set_data([], [])
-        
+
         # --- Animation ---
         def animate2(frame):
             if not self.paused2:
-                step = int(10 * self.speed_factor)  # speed factor affects simulation step size
-                self.current_idx2 = (self.current_idx2 + step) % len(self.times_ratio)
-                self.slider2.set_val(self.current_idx2)
+                self.current_idx2 += self.timesteps_per_frame
+                if self.current_idx2 >= len(self.times_ratio):
+                    self.current_idx2 = len(self.times_ratio) - 1
+                # Temporarily disable slider callbacks to prevent interference with pause
+                slider2.eventson = False
+                slider2.set_val(self.current_idx2)
+                slider2.eventson = True
                 update_fig2(self.current_idx2)
 
-        self.anim2 = FuncAnimation(fig2, animate2, frames=len(self.times_ratio),
+
+        self.anim = FuncAnimation(fig2, animate2, frames=len(self.times_years),
                                 interval=20, repeat=True)
-        ax_orbit.legend()
+        plt.legend()
+        # fig2.show()
         update_fig2(0)
 
-    # ============================================================
-    # =================== Earth Period Estimate ==================
-    # ============================================================
-    def estimate_earth_period(self, idx):
+    def plot_ratio_cosine_with_synodic(self):
         """
-        Approximate Earth's orbital period (in years) using positions up to the current slider index.
-        idx : int
-            Time index (inclusive) along times_years/positions_list to use for the estimate.
+        Plot the entire ratio and cosine arrays with peaks marked, show FFT-predicted
+        synodic period, and draw vertical dashed lines at synodic intervals with a slider
+        to shift their phase.
         """
-        if idx < 1:
-            return None
 
-        idx = min(idx, len(self.times_years) - 1)
+        fig, ax = plt.subplots(figsize=(10,6))
+        plt.subplots_adjust(bottom=0.2)
 
-        # Vector from Sun to Earth over time
-        rel = self.positions_list[1][:idx+1] - self.positions_list[0][:idx+1]
-        angles = np.unwrap(np.arctan2(rel[:, 1], rel[:, 0]))
+        # --- Smoothed arrays ---
+        # ratio_smooth = np.convolve(self.ratio_vals, np.ones(self.mov_avg_len)/self.mov_avg_len, mode='valid')
+        ratio_smooth = self.ratio_vals
+        # corr_smooth = np.convolve(self.corr_vals, np.ones(self.mov_avg_len)/self.mov_avg_len, mode='valid')
+        corr_smooth = self.corr_vals
+        times = self.times_years[:len(ratio_smooth)]
 
-        net_angle = angles[-1] - angles[0]
-        rotations = net_angle / (2 * np.pi)
-        if rotations <= 0:
-            return None
+        # height requirement for ratio peaks
+        minimum_peak_height = 0.9 * (np.nanmax(ratio_smooth) - np.nanmin(ratio_smooth)) + np.nanmin(ratio_smooth)
 
-        return (self.times_years[idx] - self.times_years[0]) / rotations
+        # --- Peaks ---
+        ratio_peaks, _ = find_peaks(ratio_smooth, height=minimum_peak_height)
+        cos_peaks, _ = find_peaks(corr_smooth, prominence=self.prominence_val)
 
-    # ============================================================
-    # =========== Synodic Period Estimates from stops ============
-    # ============================================================
-    def synodic_period_estimates(self):
+
+
+        # --- Plot ratio and cosine ---
+        ax.plot(times, ratio_smooth, 'g-', label='Ratio')
+        ax.plot(times, corr_smooth, 'm-', label='Cosine')
+        ax.plot(times[ratio_peaks], ratio_smooth[ratio_peaks], 'ro', label='Ratio Peaks')
+        ax.plot(times[cos_peaks], corr_smooth[cos_peaks], 'bo', label='Cos Peaks')
+
+        # --- FFT to predict synodic period ---
+        ratio_centered = ratio_smooth - np.mean(ratio_smooth)
+        N = len(ratio_centered)
+        dt = times[1] - times[0]
+        freqs = rfftfreq(N, dt)
+        fft_mag = np.abs(rfft(ratio_centered))
+
+        # Only consider frequencies <= 1/year
+        mask = freqs <= 1
+        fft_mag_masked = fft_mag[mask]
+
+
+        fft_peaks_indices, _ = find_peaks(x=fft_mag_masked, height=0.5 * np.max(fft_mag_masked))
+        peak_freq = freqs[mask][fft_peaks_indices[0]]
+
+        synodic_period = 1 / peak_freq
+
+
+        # if np.any(mask):
+        #     freqs_masked = freqs[mask]
+        #     fft_mag_masked = fft_mag[mask]
+        #     idx_peak = np.argmax(fft_mag_masked[1:]) + 1  # skip DC
+        #     synodic_period = 1 / freqs_masked[idx_peak]
+        # else:
+        #     synodic_period = np.nan
+        #
+
+
+        ax.set_title(f"Ratio & Cosine with Peaks\nPredicted Synodic Period ≈ {synodic_period:.2f} yr")
+        ax.set_xlabel("Time (years)")
+        ax.set_ylabel("Value")
+        ax.legend()
+        ax.grid(True)
+
+        # --- Dashed lines at synodic intervals ---
+        num_lines = int(np.ceil((times[-1] - times[0]) / synodic_period))
+        line_positions = np.array([i*synodic_period for i in range(num_lines)])
+        lines = [ax.axvline(x=pos, color='k', ls='--') for pos in line_positions]
+
+        # --- Slider to shift phase of dashed lines ---
+        ax_slider = plt.axes([0.15, 0.05, 0.7, 0.03])
+        slider = Slider(ax_slider, 'Phase', 0, synodic_period, valinit=0)
+
+        def update_phase(val):
+            phase = slider.val
+            for i, line in enumerate(lines):
+                new_pos = (i*synodic_period + phase) % (times[-1] + synodic_period)
+                line.set_xdata([new_pos, new_pos])
+            fig.canvas.draw_idle()
+
+        slider.on_changed(update_phase)
+
+        # plt.show()
+
+    def plot_fft(self):
+        fft = rfft(self.ratio_vals_smooth - np.mean(self.ratio_vals_smooth))
+        freq = rfftfreq(len(self.ratio_vals_smooth), d=(self.times_years[1]-self.times_years[0]))
+        plt.plot(self.times_years[:len(self.ratio_vals_smooth)], self.ratio_vals_smooth - np.nanmean(self.ratio_vals_smooth))
+        plt.title('ratio array vs time')
+        # plt.show()
+        plt.plot(freq, np.abs(fft))
+        plt.title('magnitude spectrum of ratio vals')
+        # plt.show()
+
+
+    def plot_ratio_cosine_with_synodic_fft(self):
         """
-        Use only recorded slider stop events to compute gaps between stops.
-        Stores and returns index differences, real-time differences (years),
-        and their mean/std. Returns None if fewer than 2 stops exist.
+        Plot the entire ratio and cosine arrays with peaks marked, show FFT-predicted
+        synodic period, and add a subplot of the FFT magnitude between 0 and 1/year.
+        Includes vertical dashed lines at predicted synodic intervals with a phase slider.
         """
-        events = getattr(self, "pause_events", [])
-        if len(events) < 2:
-            self.synodic_index_diffs = []
-            self.synodic_time_diffs = []
-            self.synodic_mean = None
-            self.synodic_std = None
-            return None
 
-        slider_indices = np.array([int(e[1]) for e in events], dtype=int)
-        idx_diffs = np.diff(slider_indices)
+        fig, (ax_main, ax_fft) = plt.subplots(2, 1, figsize=(10, 8), gridspec_kw={'height_ratios':[2,1]})
+        plt.subplots_adjust(bottom=0.2, hspace=0.35)
 
-        times = self.times_ratio[slider_indices]
-        time_diffs = np.diff(times)
+        # --- Smoothed arrays ---
+        ratio_smooth = np.convolve(self.ratio_vals, np.ones(self.mov_avg_len)/self.mov_avg_len, mode='valid')
+        corr_smooth = np.convolve(self.corr_vals, np.ones(self.mov_avg_len)/self.mov_avg_len, mode='valid')
+        times = self.times_years[:len(ratio_smooth)]
 
-        self.synodic_index_diffs = idx_diffs
-        self.synodic_time_diffs = time_diffs
-        self.synodic_mean = float(np.mean(time_diffs))
-        self.synodic_std = float(np.std(time_diffs))
+        # --- Peaks ---
+        ratio_peaks, _ = find_peaks(ratio_smooth, prominence=self.prominence_val)
+        cos_peaks, _ = find_peaks(corr_smooth, prominence=self.prominence_val)
 
-        return {
-            "count": len(slider_indices),
-            "index_differences": idx_diffs,
-            "time_differences": time_diffs,
-            "mean": self.synodic_mean,
-            "std": self.synodic_std,
-        }
+        mean_synodic_actual = np.mean(np.diff(self.times_years[ratio_peaks]))
+        stdev_synodic_actual = np.std(np.diff(self.times_years[ratio_peaks]))
 
-    # ============================================================
-    # =========== Mars Period Estimate (from synodic) ============
-    # ============================================================
-    def mars_period_estimate(self, earth_period_years):
+        # --- Plot ratio and cosine ---
+        ax_main.plot(times, ratio_smooth, 'g-', label='Ratio')
+        ax_main.plot(times, corr_smooth, 'm-', label='Cosine')
+        ax_main.plot(times[ratio_peaks], ratio_smooth[ratio_peaks], 'ro', label='Ratio Peaks')
+        ax_main.plot(times[cos_peaks], corr_smooth[cos_peaks], 'bo', label='Cos Peaks')
+
+
+        # Only consider frequencies <= 1/year
+        # --- FFT to predict synodic period ---
+        ratio_centered = ratio_smooth - np.mean(ratio_smooth)
+        N = len(ratio_centered)
+        dt = times[1] - times[0]  # timestep in years
+
+        fft_vals = rfft(ratio_centered)
+        fft_mag = np.abs(fft_vals)
+        freqs = rfftfreq(N, dt)  # frequencies in 1/year
+
+        # Consider only positive frequencies <= 2/year
+        mask_freq = 1
+        mask = (freqs > 0) & (freqs <= mask_freq)
+        freqs_masked = freqs[mask]
+        fft_mag_masked = fft_mag[mask]
+
+        fft_peaks_indices, _ = find_peaks(fft_mag_masked, height=0.5 * np.max(fft_mag_masked))
+        # find the widths of the peaks in the FFT.  scipy.signal peak_widths returns arrays consisting
+        # of [0] peak widths
+        #    [1] width_heights
+        #    [2] interpolated lefthand positions of horizontal lines intersecting peak at given rel_height
+        #    [3] ---- " ---- righthand
+        fft_peak_widths = peak_widths(x=fft_mag_masked, peaks=fft_peaks_indices, rel_height=1)
+
+        # use interpolated positions of horizontal lines to estimate CoM of peak
+        # print(freqs_masked[int(np.round(fft_peak_widths[3][0]))],freqs_masked[int(np.round(fft_peak_widths[3][1]))])
+
+        first_peak_com_index = int(np.rint((fft_peak_widths[2][0]+fft_peak_widths[3][0])/2))
+        lower_peak_width_index = int(fft_peak_widths[2][0])
+        upper_peak_width_index = int(fft_peak_widths[3][0])
+        freq_com_estimated = np.sum(fft_mag_masked[lower_peak_width_index:upper_peak_width_index] * freqs_masked[lower_peak_width_index:upper_peak_width_index]) / np.sum(fft_mag_masked[lower_peak_width_index:upper_peak_width_index])
+        com_synodic = 1 / freq_com_estimated
+
+        # com_synodic = 1/freqs_masked[first_peak_com_index]
+
+        # freq_com_estimated = np.sum(freqs_masked[fft_peaks_indices] * fft_mag_masked[fft_peaks_indices]) / np.sum(fft_mag_masked[fft_peaks_indices])
+        #
+        # freq_com_estimated = np.sum(freqs * fft_mag) / np.sum(fft_mag)
+
+        freq_com_estimated = com_synodic
+
+
+        if len(freqs_masked) > 0:
+            # idx_peak = np.argmax(fft_mag_masked)
+            idx_peak = fft_peaks_indices[0]
+            synodic_period = 1 / freqs_masked[idx_peak]
+        else:
+            synodic_period = np.nan
+
+        ax_main.set_title(f'Predicted (Mean) SynP (1peak): {synodic_period:.6f} yr;'
+                          f'\n ACTUAL: mSynP: {mean_synodic_actual:.6f}, stdev: {stdev_synodic_actual:.6f}'
+                          f'\n 1/[CoM of 1st peak]: {com_synodic:.6f}')
+
+        # Plot FFT magnitude
+        ax_fft.clear()
+        ax_fft.plot(freqs_masked, fft_mag_masked, 'b-')
+        ax_fft.set_xlabel("Frequency (1/year)")
+        ax_fft.set_ylabel("Magnitude")
+        ax_fft.set_title(f"FFT Magnitude (0-1 / year), SynP from 1 peak: {synodic_period:.2f} yr")
+        ax_fft.grid(True)
+
+        # Highlight peak
+        if not np.isnan(synodic_period):
+            ax_fft.plot(freqs_masked[idx_peak], fft_mag_masked[idx_peak], 'ro', label='Predicted Synodic Frequency')
+            ax_fft.legend()
+
+
+        # --- Dashed lines at synodic (from single peak) intervals ---
+        num_lines = int(np.ceil((times[-1] - times[0]) / synodic_period))
+        line_positions = np.array([i*synodic_period for i in range(num_lines)])
+        lines = [ax_main.axvline(x=pos, color='k', ls='--') for pos in line_positions]
+
+        num_lines_com = int(np.ceil((times[-1] - times[0]) / freq_com_estimated))
+        line_positions_com = np.array([i*freq_com_estimated for i in range(num_lines_com)])
+        lines_com = [ax_main.axvline(x=pos, color='g', ls='--') for pos in line_positions_com]
+
+        # --- Slider to shift phase of dashed lines ---
+        ax_slider = plt.axes([0.15, 0.05, 0.7, 0.03])
+        slider = Slider(ax_slider, 'Phase', 0, synodic_period, valinit=0)
+
+        def update_phase(val):
+            phase = slider.val
+            for i, line in enumerate(lines):
+                new_pos = (i*synodic_period + phase) % (times[-1] + synodic_period)
+                line.set_xdata([new_pos, new_pos])
+            fig.canvas.draw_idle()
+
+        slider.on_changed(update_phase)
+
+        # --- FFT subplot ---
+        ax_fft.plot(freqs_masked, fft_mag_masked, 'b-')
+        ax_fft.set_xlabel("Frequency (1/year)")
+        ax_fft.set_ylabel("FFT Magnitude")
+        ax_fft.set_title("Magnitude of RFFT (0-1 / year)")
+        ax_fft.grid(True)
+
+        # --- Annotate predicted synodic period on FFT ---
+        peak_freq = freqs_masked[idx_peak] if not np.isnan(synodic_period) else 0
+        peak_mag = fft_mag_masked[idx_peak] if not np.isnan(synodic_period) else 0
+        ax_fft.plot(peak_freq, peak_mag, 'ro', label='Predicted Synodic Frequency')
+        ax_fft.legend()
+
+        plt.show()
+        # fig.show()
+
+    def plot_ratio_wavelet(self, scale_min=1, scale_max=256):
         """
-        Estimate Mars' orbital period using the mean synodic period and Earth period.
-        Computes a Mars period for each synodic interval, stores samples,
-        and returns dict with mean/std/samples; None if synodic stats are unavailable.
+        Compute and display the Continuous Wavelet Transform (CWT)
+        of the smoothed ratio array using a Morlet wavelet.
+        Displays power spectrum as a function of time and period (in years).
         """
-        stats = self.synodic_period_estimates()
-        if not stats or stats["mean"] is None or earth_period_years is None:
-            return None
 
-        E = float(earth_period_years)  # Earth period (years)
-        samples = []
-        for S in np.atleast_1d(stats["time_differences"]):
-            S = float(S)
-            denom = (1.0 / E) - (1.0 / S)
-            if denom == 0:
-                continue
-            samples.append(1.0 / denom)
+        # --- Data ---
+        ratio_smooth = self.ratio_vals_smooth - np.nanmean(self.ratio_vals_smooth)
+        times = self.times_ratio
+        dt = times[1] - times[0]
 
-        if len(samples) == 0:
-            return None
+        # --- Define wavelet parameters ---
+        wavelet = 'cmor1.5-1.0'   # Complex Morlet, good balance of time/freq localization
+        scales = np.arange(int(scale_min), int(scale_max))  # range of scales; increase max for finer freq resolution
 
-        samples_arr = np.asarray(samples, dtype=float)
-        self.mars_period_samples = samples_arr
-        mean_val = float(np.mean(samples_arr))
-        std_val = float(np.std(samples_arr))
+        # --- Compute CWT ---
+        coeffs, freqs = pywt.cwt(ratio_smooth, scales, wavelet, sampling_period=dt)
+        power = np.abs(coeffs)**2
+        period = 1 / freqs  # convert from frequency (1/yr) to period (years)
 
-        return {"mean": mean_val, "std": std_val, "samples": samples_arr}
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(10, 6))
+        T, P = np.meshgrid(times, period)
 
-    # ============================================================
-    # ======= Mars Orbital Radius Estimate (Kepler's 3rd) ========
-    # ============================================================
-    def mars_radius_estimates(self, earth_period_years, sun_mass=1.9885e30, G=6.67430e-11):
+        im = ax.pcolormesh(T, P, power, shading='auto', cmap='viridis')
+        ax.set_yscale('log')
+        ax.set_ylabel("Period (years)")
+        ax.set_xlabel("Time (years)")
+        ax.set_title("Continuous Wavelet Transform (CWT) Power Spectrum of Ratio Array")
+        fig.colorbar(im, ax=ax, label="Power")
+
+        print(f"Wavelet period range: {period.min():.6f} to {period.max():.6f} years")
+
+        ax.set_ylim(1, period.max())  # show only periods ≥ 1 year
+
+        # --- Add reference lines for major peaks (optional) ---
+        if len(self.ratio_peaks_all) > 0:
+            for pk in self.times_ratio[self.ratio_peaks_all]:
+                ax.axvline(pk, color='w', ls='--', lw=0.5, alpha=0.6)
+
+        # plt.tight_layout()
+        # plt.show()
+
+
+    def plot_ratio_wavelet_wide(self, min_period=1.0, max_period=10.0, n_scales=256, wavelet='cmor1.5-1.0'):
         """
-        Use Mars period samples to estimate orbital radius via Kepler's 3rd law.
-        Assumes Earth-period-based Mars period samples are in years.
-        Returns dict with mean/std/samples (meters), or None if unavailable.
+        Compute and display a 'wide' CWT that captures low-frequency (long-period) signals.
+        Parameters:
+            min_period : float  -> minimum period (years) to display (e.g. 1.0)
+            max_period : float  -> maximum period (years) you want to capture (e.g. 10.0)
+            n_scales   : int    -> number of scales between scale_min and scale_max (use 200-2000 for higher resolution)
+            wavelet    : str    -> pywt wavelet name (complex Morlet like 'cmorB-C' recommended)
+
+        This method chooses log-spaced scales so the transform has good resolution at long periods.
         """
-        period_info = self.mars_period_estimate(earth_period_years)
-        if not period_info or "samples" not in period_info:
-            return None
 
-        samples_years = np.asarray(period_info["samples"], dtype=float)
-        if samples_years.size == 0:
-            return None
+        # --- Data and sampling ---
+        ratio_smooth = self.ratio_vals_smooth - np.nanmean(self.ratio_vals_smooth)
+        times = self.times_ratio
+        dt = times[1] - times[0]  # sampling period in years
 
-        sec_per_year = 365.25 * 24 * 3600.0
-        P_sec = samples_years * sec_per_year
+        # --- Wavelet and central frequency ---
+        central_freq = pywt.central_frequency(wavelet)  # f0
+        if central_freq <= 0:
+            raise ValueError(f"Unexpected central_frequency {central_freq} for wavelet {wavelet}")
 
-        # Kepler 3rd: P^2 = 4π^2 a^3 / (G M) => a = [G M (P/2π)^2]^(1/3)
-        factor = G * sun_mass
-        radii = (factor * (P_sec / (2 * np.pi))**2) ** (1.0 / 3.0)
+        # --- Compute scale range required to cover desired periods ---
+        # Convert desired period range into corresponding scale range using:
+        #   period = (scale * dt) / f0  => scale = period * f0 / dt
+        scale_min = max(1.0, (min_period * central_freq) / dt)   # ensure >= 1
+        scale_max = max(scale_min * 2, (max_period * central_freq) / dt)  # at least twice scale_min
 
-        self.mars_radius_samples = radii
-        mean_r = float(np.mean(radii))
-        std_r = float(np.std(radii))
-        
-        # 99% confidence interval
-        cmin = mean_r - 2.6 * std_r
-        cmax = mean_r + 2.6 * std_r
+        # Log-spaced scales are ideal for covering decades of period
+        scales = np.logspace(np.log10(scale_min), np.log10(scale_max), n_scales)
 
-        return {
-            "mean": mean_r,
-            "std": std_r,
-            "samples": radii,
-            "conf_min": cmin,
-            "conf_max": cmax,
-        }
+        # --- Compute CWT ---
+        coeffs, freqs = pywt.cwt(ratio_smooth, scales, wavelet, sampling_period=dt)
+        power = np.abs(coeffs)**2
 
-    # ============================================================
-    # =========== Mars Angular Velocity Estimates (omega) =========
-    # ============================================================
-    def mars_omega_estimates(self, earth_period_years):
+        # convert scales -> period using same formula
+        # NOTE: using pywt.central_frequency(wavelet) for consistent conversion
+        period = (scales * dt) / central_freq
+
+        # sanity print to diagnose 'empty plot' problems
+        print(f"CWT period range (years): {period.min():.6e} → {period.max():.6e}")
+        print(f"Requested display window: {min_period} → {max_period} years")
+        if period.max() < min_period:
+            print("WARNING: computed maximum period is smaller than requested min_period. Increase scale_max or n_scales.")
+
+        # --- Plotting ---
+        fig, ax = plt.subplots(figsize=(11, 6))
+        T, P = np.meshgrid(times, period)
+        im = ax.pcolormesh(T, P, power, shading='auto', cmap='viridis')
+
+        ax.set_yscale('log')
+        ax.set_xlabel("Time (years)")
+        ax.set_ylabel("Period (years)")
+        ax.set_title(f"CWT Power — wavelet={wavelet} — periods {period.min():.2e}–{period.max():.2e} yr")
+        fig.colorbar(im, ax=ax, label='Power')
+
+        # Clip the display to the requested window but only inside the available period range
+        display_min = max(min_period, period.min())
+        display_max = min(max_period, period.max())
+        if display_min >= display_max:
+            # fallback: show entire available range
+            ax.set_ylim(period.min(), period.max())
+        else:
+            ax.set_ylim(display_min, display_max)
+
+        # plt.tight_layout()
+        # plt.show()
+
+
+    def plot_ratio_stft(self, window_years=2.0, overlap=0.5, max_freq=1.0):
         """
-        Compute angular velocity (rad/s) for each Mars period sample.
-        Stores samples and returns a dict with mean/std/samples, or None if unavailable.
+        Compute and display the Short-Time Fourier Transform (STFT) of the smoothed ratio array
+        to visualize time-varying frequency content.
+
+        Parameters
+        ----------
+        window_years : float, optional
+            Duration of each STFT window in years (default 2.0).
+            Larger windows give better frequency resolution but poorer time resolution.
+        overlap : float, optional
+            Fractional overlap between consecutive windows (0–1). Default is 0.5.
+        max_freq : float, optional
+            Maximum frequency (in 1/year) to display in the spectrogram.
         """
-        period_info = self.mars_period_estimate(earth_period_years)
-        if not period_info or "samples" not in period_info:
-            return None
 
-        samples_years = np.asarray(period_info["samples"], dtype=float)
-        if samples_years.size == 0:
-            return None
+        # --- Prepare data ---
+        ratio = self.ratio_vals_smooth - np.nanmean(self.ratio_vals_smooth)
+        times = self.times_ratio
+        dt = times[1] - times[0]  # sampling interval in years
 
-        sec_per_year = 365.25 * 24 * 3600.0
-        omegas = 2 * np.pi / (samples_years * sec_per_year)
+        # --- Convert window size to samples ---
+        nperseg = int(window_years / dt)
+        if nperseg < 4:
+            raise ValueError("Window too small for data spacing — increase window_years.")
 
-        self.mars_omega_samples = omegas
-        mean_omega = float(np.mean(omegas))
-        std_omega = float(np.std(omegas))
+        noverlap = int(overlap * nperseg)
 
-        # 99% confidence interval
-        conf_min = mean_omega - 2.6 * std_omega
-        conf_max = mean_omega + 2.6 * std_omega
+        # --- Compute STFT ---
+        f, t, Zxx = stft(ratio, fs=1 / dt, nperseg=nperseg, noverlap=noverlap, window='hann')
+        power = np.abs(Zxx) ** 2
 
-        return {
-            "mean": mean_omega,
-            "std": std_omega,
-            "samples": omegas,
-            "conf_min": conf_min,
-            "conf_max": conf_max,
-        }
+        # --- Filter out high frequencies ---
+        mask = f <= max_freq
+        f = f[mask]
+        power = power[mask, :]
 
-    # ============================================================
-    # =========== Tracking Mars After Synodic Period =============
-    # ============================================================
-    def track_mars_after_synodic_period(self, earth_period_years):
+        # --- Plot spectrogram ---
+        fig, ax = plt.subplots(figsize=(10, 6))
+        T, F = np.meshgrid(t + times[0], f)  # shift time axis to actual time
+        im = ax.pcolormesh(T, F, power, shading='auto', cmap='viridis')
+
+        ax.set_xlabel("Time (years)")
+        ax.set_ylabel("Frequency (1/year)")
+        ax.set_title(
+            f"STFT Power Spectrum of Ratio Array\n(Window={window_years:.2f} yr, Overlap={overlap * 100:.0f}%)")
+        ax.set_ylim(0, max_freq)
+        ax.grid(True)
+
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label("Power (Amplitude²)")
+
+        # plt.tight_layout()
+        # plt.show()
+
+
+    def compute_local_synodic_radii(self):
         """
-        For each pause_event segment, assume Mars is collinear with Sun–Earth at the pause
-        (opposite Earth). Using 95% confidence bounds on omega and radius, generate the four
-        possible Mars positions (rmin/ rmax × omegamin/ omegamax) for each timestep until the
-        next pause. Stores segments in self.mars_conf_position_segments.
-        """
-        # restart the list every time we recompute tracking
-        self.mars_conf_position_segments = []
+        Uses the class's existing peak list (self.peaks)
+        to compute local synodic periods and estimate Mars'
+        instantaneous orbital radius assuming near-circular orbits.
 
-        rad_info = self.mars_radius_estimates(earth_period_years)
-        omega_info = self.mars_omega_estimates(earth_period_years)
-        if not rad_info or not omega_info:
-            return None
-
-        # if confidence bounds collapsed, bail
-        if any(v is None for v in (rad_info.get("conf_min"), rad_info.get("conf_max"),
-                                   omega_info.get("conf_min"), omega_info.get("conf_max"))):
-            return None
-
-        r_lo = float(rad_info.get("conf_min", 0.0))
-        r_hi = float(rad_info.get("conf_max", 0.0))
-        # enforce non-negative, ordered radii; avoid degenerate zero span
-        r_min = max(0.0, min(r_lo, r_hi))
-        r_max = max(r_min, max(r_lo, r_hi))
-        if r_max <= 0:
-            return None
-        if r_min <= 0:
-            r_min = 0.1 * r_max  # give a small span if lower bound collapsed
-
-        o_lo = float(omega_info.get("conf_min", 0.0))
-        o_hi = float(omega_info.get("conf_max", 0.0))
-        # enforce positive angular speeds and ordering
-        o_min = min(abs(o_lo), abs(o_hi))
-        o_max = max(abs(o_lo), abs(o_hi))
-        if o_max <= 0:
-            return None
-        if o_min <= 0:
-            o_min = 0.1 * o_max
-
-        events = sorted(getattr(self, "pause_events", []), key=lambda e: e[1])
-        if len(events) == 0:
-            # fallback: synthesize from ratio peaks so we can visualize something
-            if len(self.ratio_peaks_all) >= 2:
-                events = [(int(p), int(p), 0) for p in self.ratio_peaks_all]
-            else:
-                return None
-
-        sec_per_year = 365.25 * 24 * 3600.0
-        segments = []
-        for i, ev in enumerate(events):
-            start_idx = int(ev[1])
-            if start_idx >= len(self.times_ratio):
-                continue
-            end_idx = int(events[i + 1][1]) if i + 1 < len(events) else len(self.times_ratio) - 1
-            end_idx = min(end_idx, len(self.times_ratio) - 1)
-            if end_idx <= start_idx:
-                continue
-
-            sun_pos = self.positions_list[0][start_idx]
-            earth_pos = self.positions_list[1][start_idx]
-            dir_vec = earth_pos - sun_pos
-            norm = np.linalg.norm(dir_vec)
-            if norm == 0:
-                continue
-            u_dir = dir_vec / norm  # assume Mars is collinear on the same side as Earth during pause event
-            theta0 = np.arctan2(u_dir[1], u_dir[0])
-
-            times_seg = self.times_ratio[start_idx : end_idx + 1]
-            dt_years = times_seg - times_seg[0]
-            dt_sec = dt_years * sec_per_year
-
-            omegas = [o_min, o_min, o_max, o_max]
-            radii = [r_min, r_max, r_min, r_max]
-
-            positions = np.zeros((len(times_seg), 4, 2))
-            for j in range(4):
-                theta = theta0 + omegas[j] * dt_sec
-                positions[:, j, 0] = sun_pos[0] + radii[j] * np.cos(theta)
-                positions[:, j, 1] = sun_pos[1] + radii[j] * np.sin(theta)
-
-            segments.append(
-                {"start_idx": start_idx, "end_idx": end_idx, "positions": positions}
+        Returns
+        -------
+        results : list of tuples
+            Each entry:
+            (
+                (t_peak_i, t_peak_{i+1}),   # the two peak times
+                synodic_period,             # Δt between peaks
+                est_mars_radius             # a_M estimate from synodic assumption
             )
-
-        self.mars_conf_position_segments = segments
-        return segments
-
-    # ============================================================
-    # =========== Flashlight / Telescope Utilities ===============
-    # ============================================================
-    def _ensure_flashlight_lines(self, ax_orbit, count=4):
         """
-        Create and store the flashlight line artists if they don't exist.
-        """
-        lines = getattr(self, "_flashlight_lines", [])
-        missing = max(0, count - len(lines))
-        for _ in range(missing):
-            (line,) = ax_orbit.plot([], [], color='yellow', lw=1.5, alpha=0.8)
-            line.set_visible(False)
-            lines.append(line)
-        self._flashlight_lines = lines
-        return lines
 
-    def _hide_flashlight_lines(self):
-        for line in getattr(self, "_flashlight_lines", []):
-            line.set_visible(False)
+        # Ensure peaks exist
+        if len(self.ratio_peaks_all) < 2:
+            print("Not enough peaks in self.peaks to compute local synodic periods.")
+            return []
 
-    def toggle_flashlight(self, ax_orbit, colors=None):
+        times = self.times_years
+        peak_times = times[self.ratio_peaks_all]
+
+        results = []
+
+        # Loop through consecutive peaks
+        for i in range(len(peak_times) - 1):
+            t1 = peak_times[i]
+            t2 = peak_times[i + 1]
+
+            syn = t2 - t1
+            if syn <= 0:
+                continue
+
+            # ----- Estimate Mars radius from synodic period -----
+            # 1/P_syn = |1 - 1/P_M|
+            # Assume P_M > 1 (Mars slower)
+            #   => 1/P_M = 1 - 1/P_syn
+            invP_M = 1.0 - 1.0/syn
+
+            if invP_M <= 0:
+                # Happens for eccentric orbits near perihelion
+                a_M = np.nan
+            else:
+                P_M = 1.0 / invP_M
+                a_M = P_M ** (2.0/3.0)    # AU
+
+            results.append(((t1, t2), syn, a_M))
+            print(f"Local synodic period {i}: {syn} yrs; est. orbital rad: {a_M} au")
+        
+
+        return results
+
+    def plot_local_synodic_radius_markers(self):
         """
-        Toggle the Mars confidence flashlight on/off.
+        Plots actual Earth and Mars orbits and adds predicted Mars radius markers
+        based on local synodic periods. Each marker is placed along the ray from
+        Sun → Earth evaluated at the MIDPOINT of the synodic interval.
+        Also fits an ellipse with Sun at origin to the predicted markers and plots it.
         """
-        self._flashlight_active = not getattr(self, "_flashlight_active", False)
-        if not self._flashlight_active:
-            self._hide_flashlight_lines()
+
+        import scipy.optimize
+
+        # ------------------------------------------------------------
+        # 1. Compute synodic radius estimates
+        # ------------------------------------------------------------
+        syn_results = self.compute_local_synodic_radii()
+        if len(syn_results) == 0:
+            print("No synodic radius data available.")
             return
 
-        self._ensure_flashlight_lines(ax_orbit, count=4)
+        # ------------------------------------------------------------
+        # 2. Get actual orbits
+        # ------------------------------------------------------------
+        earth_xy = np.asarray(self.positions_list[1])   # Earth
+        mars_xy  = np.asarray(self.positions_list[2])   # Mars
+        times    = self.times_years
 
-        # Update immediately with current slider index if available; hide if no data
-        ok = False
-        try:
-            # ensure segments exist
-            ep_all = self.estimate_earth_period(len(self.times_years) - 1)
-            self.track_mars_after_synodic_period(ep_all)
-            idx = int(getattr(self, "current_idx2", 0))
-            ok = self._update_flashlight(idx, ax_orbit)
-        except Exception:
-            ok = False
-        if not ok:
-            self._hide_flashlight_lines()
+        # Compute Earth's mean orbital radius (simulation units)
+        r_earth_mean = np.mean(np.sqrt(earth_xy[:,0]**2 + earth_xy[:,1]**2))
 
-    def _update_flashlight(self, idx, ax_orbit):
-        """
-        Plot yellow lines from Earth to each possible Mars position for this timestep.
-        Returns True if updated, False otherwise.
-        """
-        if not getattr(self, "_flashlight_active", False):
-            return False
+        # ------------------------------------------------------------
+        # 3. Make the figure
+        # ------------------------------------------------------------
+        fig, ax = plt.subplots(figsize=(8,8))
+        ax.set_aspect('equal', 'box')
 
-        lines = self._ensure_flashlight_lines(ax_orbit, count=4)
+        # Plot real orbits
+        ax.plot(earth_xy[:,0], earth_xy[:,1], label="Earth (actual)", alpha=0.75)
+        ax.plot(mars_xy[:,0], mars_xy[:,1], label="Mars (actual)", alpha=0.75)
+        ax.plot(0, 0, 'yo', markersize=10, label="Sun")
 
-        segments = getattr(self, "mars_conf_position_segments", [])
-        if not segments:
-            # try to recompute if we have an Earth period estimate
-            try:
-                ep = self.estimate_earth_period(len(self.times_years) - 1)
-                self.track_mars_after_synodic_period(ep)
-                segments = getattr(self, "mars_conf_position_segments", [])
-            except Exception:
-                segments = []
-        if not segments:
-            # fallback: aim opposite Earth with max radius if available
-            rad_info = self.mars_radius_estimates(self.estimate_earth_period(idx))
-            if not rad_info or rad_info.get("conf_max") is None:
-                self._hide_flashlight_lines()
-                return False
-            radii = [val for val in (rad_info.get("conf_min"), rad_info.get("conf_max")) if val and val > 0]
-            earth_pos = self.positions_list[1][idx]
-            sun_pos = self.positions_list[0][idx]
-            dir_vec = earth_pos - sun_pos
-            norm = np.linalg.norm(dir_vec)
-            if norm == 0 or len(radii) == 0:
-                self._hide_flashlight_lines()
-                return False
-            u_dir = dir_vec / norm
-            pos_candidates = np.array([sun_pos + r * u_dir for r in radii])
-        else:
-            # Find segment containing idx; if none, pick nearest and clamp
-            seg = None
-            for s in segments:
-                if s["start_idx"] <= idx <= s["end_idx"]:
-                    seg = s
-                    break
-            if seg is None:
-                seg = min(segments, key=lambda s: min(abs(idx - s["start_idx"]), abs(idx - s["end_idx"])))
+        # ------------------------------------------------------------
+        # 4. Add predicted synodic radii using midpoint placement
+        # ------------------------------------------------------------
+        pred_points = []
 
-            t_idx = idx - seg["start_idx"]
-            # clamp to valid range
-            t_idx = max(0, min(t_idx, len(seg["positions"]) - 1))
+        for k, ((t1, t2), syn, est_aM) in enumerate(syn_results):
+            if est_aM is None or np.isnan(est_aM):
+                continue
 
-            pos_candidates = seg["positions"][t_idx]  # shape (4,2)
-        earth_pos = self.positions_list[1][idx]
+            # Convert AU to simulation units
+            pred_radius = est_aM * r_earth_mean
 
-        pos_candidates = np.atleast_2d(pos_candidates)
-        # Grow line list if we have more candidates than lines
-        if len(lines) < len(pos_candidates):
-            extra = len(pos_candidates) - len(lines)
-            self._ensure_flashlight_lines(ax_orbit, count=len(pos_candidates))
-            lines = self._flashlight_lines
+            # Midpoint time
+            t_mid = 0.5 * (t1 + t2)
 
-        ok = False
-        for i, line in enumerate(lines):
-            if i < len(pos_candidates):
-                target = pos_candidates[i]
-                line.set_data([earth_pos[0], target[0]], [earth_pos[1], target[1]])
-                line.set_visible(True)
-                line.set_zorder(0.5)
-                ok = True
-            else:
-                line.set_visible(False)
-        if not ok:
-            self._hide_flashlight_lines()
-        return ok
+            # Closest Earth index to t_mid
+            idx_mid = np.argmin(np.abs(times - t_mid))
+            ex, ey = earth_xy[idx_mid]
+            rE = np.sqrt(ex**2 + ey**2)
+            if rE == 0:
+                continue
 
-    # ============================================================
-    # =========== Plot stored Mars confidence positions ==========
-    # ============================================================
-    def plot_mars_conf_positions(self):
-        """
-        Create a static plot showing Earth, Mars, and all stored Mars confidence positions
-        from track_mars_after_synodic_period(). Returns (fig, ax) or None if no data.
-        """
-        segs = getattr(self, "mars_conf_position_segments", None)
-        if not segs:
-            fig, ax = plt.subplots(figsize=(7, 7))
-            ax.set_title("Mars Confidence Positions")
-            ax.text(0.5, 0.5, "No Mars confidence positions available.", ha='center', va='center')
-            ax.axis('off')
-            return fig, ax
+            # Unit vector Sun→Earth at midpoint
+            ux = -ex / rE
+            uy = -ey / rE
 
-        all_pts = []
-        for seg in segs:
-            pts = seg.get("positions")
-            if pts is not None:
-                all_pts.append(pts.reshape(-1, 2))
-        if not all_pts:
-            print("No Mars confidence positions available. Run track_mars_after_synodic_period first.")
-            return None
+            # Predicted Mars position along that ray
+            px = pred_radius * ux
+            py = pred_radius * uy
+            pred_points.append([px, py])
 
-        all_pts = np.vstack(all_pts)
+            ax.plot(px, py, 'r*', markersize=11)
+            ax.text(px, py, f"{k}", color='red', fontsize=9)
 
-        fig, ax = plt.subplots(figsize=(7, 7))
-        ax.set_aspect('equal')
-        ax.grid(True)
-        ax.set_title("Mars Confidence Positions")
-        ax.set_xlim(-self.xlim, self.xlim)
-        ax.set_ylim(-self.ylim, self.ylim)
+        pred_points = np.array(pred_points)
+        if len(pred_points) >= 5:  # Need enough points to fit
+            # ------------------------------------------------------------
+            # 5. Fit an ellipse with Sun at origin (polar form)
+            # ------------------------------------------------------------
+            def ellipse_r(theta, a, e):
+                return a * (1 - e**2) / (1 + e * np.cos(theta))
 
-        # Plot Earth and Mars actual trajectories for reference
-        if len(self.positions_list) > 1:
-            ax.plot(self.positions_list[1][:, 0], self.positions_list[1][:, 1], 'b-', alpha=0.2, label="Earth path")
-        if len(self.positions_list) > 2:
-            ax.plot(self.positions_list[2][:, 0], self.positions_list[2][:, 1], 'r-', alpha=0.2, label="Mars path")
+            theta = np.arctan2(pred_points[:,1], pred_points[:,0])
+            r_obs = np.sqrt(pred_points[:,0]**2 + pred_points[:,1]**2)
 
-        ax.scatter(all_pts[:, 0], all_pts[:, 1], c='gold', s=5, alpha=0.6, label="Mars conf points")
+            # Initial guess: a = mean(r_obs), e = 0.1
+            p0 = [np.mean(r_obs), 0.1]
+            bounds = ([0, 0], [np.inf, 0.9])  # positive semi-major, eccentricity < 1
+            popt, _ = scipy.optimize.curve_fit(ellipse_r, theta, r_obs, p0=p0, bounds=bounds)
+            a_fit, e_fit = popt
+
+            # Generate fitted ellipse points for plotting
+            theta_fit = np.linspace(0, 2*np.pi, 300)
+            r_fit = ellipse_r(theta_fit, a_fit, e_fit)
+            x_fit = r_fit * np.cos(theta_fit)
+            y_fit = r_fit * np.sin(theta_fit)
+
+            ax.plot(x_fit, y_fit, 'm--', label=f"Fitted ellipse (Sun at focus)")
+            print(f"Regression ellipse eccentricity: {e_fit:.4f}")
+
+            mars_radii = np.sqrt(mars_xy[:,0]**2 + mars_xy[:,1]**2)
+            mars_theta = np.arctan2(mars_xy[:,1], mars_xy[:,0])
+
+            # Fit ellipse in polar coordinates (Sun at origin)
+            def ellipse_r(theta, a, e):
+                return a*(1-e**2)/(1 + e*np.cos(theta))
+
+            p0 = [np.mean(mars_radii), 0.1]
+            bounds = ([0, 0], [np.inf, 0.9])
+            popt, _ = scipy.optimize.curve_fit(ellipse_r, mars_theta, mars_radii, p0=p0, bounds=bounds)
+            a_mars, e_mars = popt
+            print(f"Mars actual eccentricity (from polar fit): {e_mars:.4f}")
+
+        # ------------------------------------------------------------
+        # 6. Finish
+        # ------------------------------------------------------------
+        ax.set_xlabel("x (simulation units)")
+        ax.set_ylabel("y (simulation units)")
+        ax.set_title("Actual Orbits + Synodic Predicted Mars Radii (midpoint Earth direction)")
         ax.legend()
-        return fig, ax
+        plt.tight_layout()
+        plt.show()
+
+
+        
+    @staticmethod
+    def fit_ellipse_least_squares(points):
+        """
+        Fit an ellipse to a set of 2D points using the Direct Least Squares method.
+        Returns the ellipse parameters and eccentricity.
+
+        Parameters
+        ----------
+        points : array-like, shape (n_points, 2)
+            Array of (x, y) coordinates.
+
+        Returns
+        -------
+        ellipse_params : dict
+            Dictionary containing:
+                - 'center' : (h, k)
+                - 'axes'   : (a, b) semi-major and semi-minor axes
+                - 'angle'  : rotation angle of the ellipse in radians
+                - 'eccentricity' : e
+        """
+        x = points[:, 0]
+        y = points[:, 1]
+
+        # Build design matrix for conic equation: Ax^2 + Bxy + Cy^2 + Dx + Ey + F = 0
+        D = np.vstack([x**2, x*y, y**2, x, y, np.ones_like(x)]).T
+        # Scatter matrix
+        S = np.dot(D.T, D)
+        # Constraint matrix
+        C = np.zeros((6,6))
+        C[0,2] = C[2,0] = 2
+        C[1,1] = -1
+
+        # Solve generalized eigenvalue problem
+        import scipy.linalg
+        eigvals, eigvecs = scipy.linalg.eig(S, C)
+        # Pick the real solution
+        cond = np.isreal(eigvals)
+        a = np.real(eigvecs[:, cond][:,0])
+
+        # Extract parameters
+        A, B, C_, D_, E_, F_ = a
+
+        # Compute center
+        denom = B**2 - 4*A*C_
+        h = (2*C_*D_ - B*E_) / denom
+        k = (2*A*E_ - B*D_) / denom
+
+        # Compute semi-axes
+        up = 2*(A*E_**2 + C_*D_**2 + F_*B**2 - B*D_*E_ - 4*A*C_*F_)
+        down1 = (B**2 - 4*A*C_)*( (C_ - A*np.sqrt(1 + (B**2)/((A-C_)**2))) )
+        down2 = (B**2 - 4*A*C_)*( (C_ + A*np.sqrt(1 + (B**2)/((A-C_)**2))) )
+        a_len = np.sqrt(np.abs(up/down1))
+        b_len = np.sqrt(np.abs(up/down2))
+
+        # Compute rotation angle
+        angle = 0.5 * np.arctan2(B, A - C_)
+
+        # Eccentricity
+        e = np.sqrt(1 - (b_len**2 / a_len**2))
+
+        return {
+            "center": (h, k),
+            "axes": (a_len, b_len),
+            "angle": angle,
+            "eccentricity": e
+        }
+
+
+
+    # ================= SHOW PLOTS =================
+    def show_plots(self):
+        plt.show()
+
+
+'''
+    def plot_local_synodic_radius_markers(self):
+        """
+        Plots actual Earth and Mars orbits and adds predicted Mars radius markers
+        based on local synodic periods.  Each marker is placed along the ray from
+        Sun → Earth evaluated at the MIDPOINT of the synodic interval.
+        """
+
+        # ------------------------------------------------------------
+        # 1. Compute synodic radius estimates
+        # ------------------------------------------------------------
+        syn_results = self.compute_local_synodic_radii()
+        if len(syn_results) == 0:
+            print("No synodic radius data available.")
+            return
+
+        # ------------------------------------------------------------
+        # 2. Get actual orbits
+        # ------------------------------------------------------------
+        earth_xy = np.asarray(self.positions_list[1])   # Earth
+        mars_xy  = np.asarray(self.positions_list[2])   # Mars
+        times    = self.times_years
+
+        # Compute Earth's mean orbital radius (simulation units)
+        r_earth_mean = np.mean(np.sqrt(earth_xy[:,0]**2 + earth_xy[:,1]**2))
+
+        # ------------------------------------------------------------
+        # 3. Make the figure
+        # ------------------------------------------------------------
+        fig, ax = plt.subplots(figsize=(8,8))
+        ax.set_aspect('equal', 'box')
+
+        # Plot real orbits
+        ax.plot(earth_xy[:,0], earth_xy[:,1], label="Earth (actual)", alpha=0.75)
+        ax.plot(mars_xy[:,0], mars_xy[:,1],   label="Mars (actual)", alpha=0.75)
+
+        ax.plot(0, 0, 'yo', markersize=10, label="Sun")
+
+        # ------------------------------------------------------------
+        # 4. Add predicted synodic radii using midpoint placement
+        # ------------------------------------------------------------
+        for k, ((t1, t2), syn, est_aM) in enumerate(syn_results):
+
+            if est_aM is None or np.isnan(est_aM):
+                continue
+
+            # Convert AU to simulation units
+            pred_radius = est_aM * r_earth_mean
+
+            # Midpoint time
+            t_mid = 0.5 * (t1 + t2)
+
+            # Closest Earth index to t_mid
+            idx_mid = np.argmin(np.abs(times - t_mid))
+
+            ex, ey = earth_xy[idx_mid]
+            rE = np.sqrt(ex**2 + ey**2)
+            if rE == 0:
+                continue
+
+            # Unit vector Sun→Earth at midpoint
+            ux = -ex / rE
+            uy = -ey / rE
+
+            # Predicted Mars position along that ray
+            px = pred_radius * ux
+            py = pred_radius * uy
+
+            ax.plot(px, py, 'r*', markersize=11)
+            ax.text(px, py, f"{k}", color='red', fontsize=9)
+
+        # ------------------------------------------------------------
+        # 5. Finish
+        # ------------------------------------------------------------
+        ax.set_xlabel("x (simulation units)")
+        ax.set_ylabel("y (simulation units)")
+        ax.set_title("Actual Orbits + Synodic Predicted Mars Radii (midpoint Earth direction)")
+        ax.legend()
+        plt.tight_layout()
+        plt.show()
+'''
