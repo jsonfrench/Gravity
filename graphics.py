@@ -19,17 +19,20 @@ G = sim.G
 
 # Contrived Sun–Earth–Mars system
 central_mass = 300000.0
-r1, r2 = 1.0, 2
+r1, r2 = 1.6, 2
 m1 = 1.0
 m2 = 0.107 * 1000
 v1 = np.sqrt(G * central_mass / r1)
-v2 = np.sqrt(G * central_mass / r2) 
+v2 = np.sqrt(G * central_mass / r2) * 1
 
 # # === base example
 sim.add(m=central_mass)   # Sun
 sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
 sim.add(m=m2, x=r2, y=0, vy=v2)  # Mars
-t_max = 2e4
+sim.add(m=m2, x=3.2, y=0, vy=np.sqrt(G * central_mass / 3.2))  # Mars
+sim.add(m=m2, x=4.5, y=0, vy=np.sqrt(G * central_mass / 4.5))  # Mars
+sim.add(m=m2, x=6.5, y=0, vy=np.sqrt(G * central_mass / 6.5))  # Mars
+t_max = 3e4
 
 # === elliptical inside
 # sim.add(m=central_mass)   # Sun
@@ -55,6 +58,9 @@ dt = times[1] - times[0]
 positions_0 = np.zeros((n_steps, 2))
 positions_1 = np.zeros((n_steps, 2))
 positions_2 = np.zeros((n_steps, 2))
+positions_3 = np.zeros((n_steps, 2))
+positions_4 = np.zeros((n_steps, 2))
+positions_5 = np.zeros((n_steps, 2))
 
 accelerations_1 = np.zeros((n_steps, 2))
 accelerations_2 = np.zeros((n_steps, 2))
@@ -62,10 +68,13 @@ accelerations_2 = np.zeros((n_steps, 2))
 sim_copy = sim.copy()
 for i, t in enumerate(times):
     sim_copy.integrate(t)
-    p0, p1, p2 = sim_copy.particles
+    p0, p1, p2, p3, p4, p5 = sim_copy.particles
     positions_0[i] = [p0.x, p0.y]
     positions_1[i] = [p1.x, p1.y]
     positions_2[i] = [p2.x, p2.y]
+    positions_3[i] = [p3.x, p3.y]
+    positions_4[i] = [p4.x, p4.y]
+    positions_5[i] = [p5.x, p5.y]
 
     accelerations_1[i] = [p1.ax, p1.ay]
     accelerations_2[i] = [p2.ax, p2.ay]
@@ -148,10 +157,12 @@ for i in range(len(dt_ratio)):
         crossings = np.append(crossings, times[i])
 
 # === Plot Setup ===
-fig, (ax_orbit, ax_combined, ax_delta) = plt.subplots(3, 1, figsize=(6, 9))
+# fig, (ax_orbit, ax_combined, ax_delta) = plt.subplots(3, 1, figsize=(6, 9))
+fig, ax_orbit = plt.subplots(1, 1, figsize=(6, 9))
 plt.subplots_adjust(bottom=0.25, hspace=0.35)
 idx = 0 # Animation starts on this frame
 
+"""
 ax_delta.set_xlim(times[0], times[-1])
 ax_delta.plot(times, np.zeros(len(times)), "--", color="black")
 ax_delta.plot(times, dt_ratio)
@@ -161,27 +172,47 @@ ax_delta.scatter(crossings, np.zeros_like(crossings), color = "red")
 # Plot standard deviation boundaries
 ax_delta.plot(times, np.zeros(len(times))+np.nanstd(dt2_ratio)*dt2_threshold, "--", color="grey")
 ax_delta.plot(times, np.zeros(len(times))-np.nanstd(dt2_ratio)*dt2_threshold, "--", color="grey")
+"""
 
 # 1️⃣ Orbit Plot
 # ax_orbit.set_xlim(-1.6, 1.6)
 # ax_orbit.set_ylim(-1.6, 1.6)
 ax_orbit.set_aspect('equal')
 ax_orbit.set_title("Orbital Motion with Normalized Perturbation and Earth–Mars Vectors")
-ax_orbit.grid(True)
+# ax_orbit.grid(True)
 
-ax_orbit.plot(positions_1[:, 0], positions_1[:, 1], 'b-', alpha=0.3)
-ax_orbit.plot(positions_2[:, 0], positions_2[:, 1], 'r-', alpha=0.3)
-ax_orbit.plot(positions_0[:, 0], positions_0[:, 1], color='gold', lw=0.5, alpha=0.3)
+# ax_orbit.plot(positions_1[:, 0], positions_1[:, 1], 'b-', alpha=0.3)
+# ax_orbit.plot(positions_2[:, 0], positions_2[:, 1], 'r-', alpha=0.3)
+# ax_orbit.plot(positions_0[:, 0], positions_0[:, 1], color='gold', lw=0.5, alpha=0.3)
 
+# ax_orbit.plot(positions_1[:, 0], positions_1[:, 1], color='grey', lw=1, alpha=1)
+# ax_orbit.plot(positions_2[:, 0], positions_2[:, 1], color='grey', lw=1, alpha=1)
+# ax_orbit.plot(positions_0[:, 0], positions_0[:, 1], color='grey', lw=0.5, alpha=0)
 
-marker_sun, = ax_orbit.plot([], [], 'yo', markersize=8)
-marker_earth, = ax_orbit.plot([], [], 'bo', markersize=5)
-marker_mars, = ax_orbit.plot([], [], 'ro', markersize=5)
+ax_orbit.plot(positions_0[:, 0], positions_0[:, 1], lw=0.5, alpha=0)
+ax_orbit.plot(positions_1[:, 0], positions_1[:, 1], lw=1, alpha=1)
+ax_orbit.plot(positions_2[:, 0], positions_2[:, 1], lw=1, alpha=1)
+ax_orbit.plot(positions_3[:, 0], positions_3[:, 1], lw=1, alpha=1)
+ax_orbit.plot(positions_4[:, 0], positions_4[:, 1], lw=1, alpha=1)
+ax_orbit.plot(positions_5[:, 0], positions_5[:, 1], lw=1, alpha=1)
+
+# marker_sun, = ax_orbit.plot([], [], 'o', markersize=10, color = "#fced25ff")
+# marker_earth, = ax_orbit.plot([], [], 'o', markersize=8, color = "#26a7edff")
+# marker_mars, = ax_orbit.plot([], [], 'o', markersize=8, color = "#f35b17ff")
+
+marker_sun, = ax_orbit.plot([], [], 'o', markersize=10)
+marker_earth, = ax_orbit.plot([], [], 'o', markersize=8)
+marker_mars, = ax_orbit.plot([], [], 'o', markersize=8)
+marker_3, = ax_orbit.plot([], [], 'o', markersize=8)
+marker_4, = ax_orbit.plot([], [], 'o', markersize=8)
+marker_5, = ax_orbit.plot([], [], 'o', markersize=8)
+
 c_marker_mars, = ax_orbit.plot([], [], "o", color="red", alpha=0.5, markersize = 6) # calculated position of mars based off measurements
 pert_arrow = None
 mars_arrow = None
-ax_orbit.legend(loc="upper right")
+# ax_orbit.legend(loc="upper right")
 
+"""
 # 2️⃣ Combined Cosine & Ratio Plot
 ax_combined.set_xlim(times[0], times[-1])
 ax_combined.set_title("Cosine (Magenta) and Accel Ratio (Green)")
@@ -214,10 +245,13 @@ flashlight = Wedge((positions_1[1]),
                     -2*np.pi*positions_1[0,0]*0.5*180/np.pi/16, 
                     2*np.pi*positions_1[0,0]*0.5*180/np.pi/16, 
                     color = "gold", alpha = 0.5)
-ax_orbit.add_patch(flashlight)
+# ax_orbit.add_patch(flashlight)
 
 # Euler step visualization
 euler_vector, = ax_delta.plot([0,1], [0,0], ".-", color = "purple")
+"""
+
+
 
 # Setup simulation variables
 offset = 0
@@ -231,13 +265,19 @@ c_T2s = []
 T2s = []
 # === Update Function ===
 def update(i):
+
+    marker_sun.set_data([positions_0[i, 0]], [positions_0[i, 1]])
+    marker_earth.set_data([positions_1[i, 0]], [positions_1[i, 1]])
+    marker_mars.set_data([positions_2[i, 0]], [positions_2[i, 1]])
+    marker_3.set_data([positions_3[i, 0]], [positions_3[i, 1]])
+    marker_4.set_data([positions_4[i, 0]], [positions_4[i, 1]])
+    marker_5.set_data([positions_5[i, 0]], [positions_5[i, 1]])
+
+    """
     if(i>2):
         euler_vector.set_data([times[i], times[i+int(euler_step_size)]], [dt_ratio[i], dt_ratio[i] + (dt2_ratio[i]*dt*euler_step_size)])
 
     global pert_arrow, mars_arrow, offset, detected_peaks, T1, T2, c_r2
-    marker_sun.set_data([positions_0[i, 0]], [positions_0[i, 1]])
-    marker_earth.set_data([positions_1[i, 0]], [positions_1[i, 1]])
-    marker_mars.set_data([positions_2[i, 0]], [positions_2[i, 1]])
     flashlight.set_center(positions_1[i])
     if is_visible(
         positions_1[i, 0], positions_1[i,1],
@@ -309,7 +349,8 @@ def update(i):
         distance_fromEarth_toMars = np.sqrt((positions_1[i][0]-c_x2)**2+(positions_1[i][1]-c_y2)**2)
         distance.set_val(distance_fromEarth_toMars * 1.01)  # add some distance to encompass mars
 
-
+    """    
+    """
     for arrow in [pert_arrow, mars_arrow]:
         if arrow is not None:
             arrow.remove()
@@ -333,8 +374,10 @@ def update(i):
     corr_line.set_data(times[:i], corr_vals[:i])
     ratio_line.set_data(times[:i], (ratio_vals[:i]-1)+1)
     corr_time_marker.set_xdata([times[i], times[i]])
-
+    """
+    
 # === Telescope Controls === 
+"""
 ax_angle        = plt.axes([0.1, 0.55, 0.15, 0.03])
 ax_distance     = plt.axes([0.1, 0.50, 0.15, 0.03])
 ax_resolution   = plt.axes([0.1, 0.45, 0.15, 0.03])
@@ -379,6 +422,7 @@ def is_visible(x0, y0, x1, y1, angle, distance, fov):
     is_within_sector = is_within_range and is_within_fov
 
     return is_within_sector
+"""
 
 # === Slider and Button ===
 ax_slider = plt.axes([0.15, 0.12, 0.65, 0.03])
@@ -423,5 +467,16 @@ def animate(frame):
     return []
 
 ani = FuncAnimation(fig, animate, frames=times, interval=10, blit=True, repeat=True)
+
+# Snapshot button:
+ax_snap = plt.axes([0.86, 0.08, 0.1, 0.04])
+snap_button = Button(ax_snap, 'Snapshot')
+
+def snapshot(event):
+    plt.savefig("orbit_snapshot.png", transparent=True)
+    print(f"Snapshot taken!")
+
+snap_button.on_clicked(snapshot)
+
 
 plt.show()

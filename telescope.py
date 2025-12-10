@@ -20,7 +20,7 @@ r1, r2 = 1.0, 2
 m1 = 1.0
 m2 = 0.107
 v1 = np.sqrt(G * central_mass / r1)
-v2 = np.sqrt(G * central_mass / r2)
+v2 = np.sqrt(G * central_mass / r2) * 1.2
 
 # === base example
 sim.add(m=central_mass)   # Sun
@@ -89,7 +89,7 @@ marker_earth, = ax_orbit.plot([], [], 'bo', markersize=5)
 marker_mars, = ax_orbit.plot([], [], 'ro', markersize=5)
 pert_arrow = None
 mars_arrow = None
-ax_orbit.legend(loc="upper right")
+# ax_orbit.legend(loc="upper right")
 
 flashlight = Wedge((positions_1[1]),
                     positions_1[0,0]*0.5, 
@@ -137,9 +137,9 @@ def update(i):
                                     color='red', head_width=0.03)
 
 # === Telescope Controls === 
-ax_angle        = plt.axes([0.1, 0.55, 0.15, 0.03])
-ax_distance     = plt.axes([0.1, 0.50, 0.15, 0.03])
-ax_resolution   = plt.axes([0.1, 0.45, 0.15, 0.03])
+ax_angle        = plt.axes([0.1, 0.55, 0.10, 0.03])
+ax_distance     = plt.axes([0.1, 0.50, 0.10, 0.03])
+ax_resolution   = plt.axes([0.1, 0.45, 0.10, 0.03])
 angle       = Slider(ax_angle, "Angle", 0, 2*np.pi, valinit = 0)
 distance    = Slider(ax_distance, "Distance", 0, max(np.amax(positions_1), np.amax(positions_2)) * 2 * np.sqrt(2), valinit = positions_1[0,0]*0.5)
 resolution  = Slider(ax_resolution, "Resolution", 0, 2*np.pi*distance.val, valinit=2*np.pi*distance.val/16)

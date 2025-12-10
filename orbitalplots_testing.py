@@ -18,6 +18,7 @@ mass_mars = 6.4171e23
 r_venus = 1.08e11   # 0.728 au
 r_earth = 1.496e11  # 1 au
 r_mars = 2.279e11   # 1.524 au
+au = 1.496e11
 
 # --- Circular velocities (m/s) assuming central mass = Sun ---
 v_venus = np.sqrt(G * mass_sun / r_venus)
@@ -34,6 +35,9 @@ sim.integrator = "ias15"
 sim.add(m=mass_sun)                                 # Sun
 sim.add(m=mass_earth, x=r_earth, y=0, vy=v_earth)   # Earth
 sim.add(m=mass_mars, x=r_mars, y=0, vy=v_mars)      # Mars
+sim.add(m=mass_mars, x=r_mars+1*au, y=0, vy=v_mars)      # Mars
+sim.add(m=mass_mars, x=r_mars+2*au, y=0, vy=v_mars)      # Mars
+sim.add(m=mass_mars, x=r_mars+3*au, y=0, vy=v_mars)      # Mars
 # sim.add(m=mass_venus, x = r_venus, y=0, vy=v_venus) # Venus
 
 # --- Time setup ---

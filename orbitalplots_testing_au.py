@@ -38,7 +38,7 @@ r_mars = r_mars / r_earth
 r_earth = 1
 
 # --- Circular velocities (m/s) assuming central mass = Sun ---
-v_factor = 1.15 # should be between 1 and 1.41
+v_factor = 1.2 # should be between 1 and 1.41
 
 v_mercury = np.sqrt(G * mass_sun / r_mercury)
 v_venus = np.sqrt(G * mass_sun / r_venus)
@@ -57,14 +57,14 @@ sim.integrator = "ias15"
 # should be done in SUN - EARTH - MARS - OTHERS order
 sim.add(m=mass_sun)                                 # Sun
 sim.add(m=mass_earth, x=r_earth, y=0, vy=v_earth)   # Earth
-# sim.add(m=mass_jupiter, x=r_jupiter, y=0, vy=v_jupiter) # jupiter being third makes it the unknown
+sim.add(m=mass_jupiter, x=r_jupiter, y=0, vy=v_jupiter) # jupiter being third makes it the unknown
 sim.add(m=mass_mars, x=r_mars, y=0, vy=v_mars)      # Mars
-# sim.add(m=mass_venus, x = r_venus, y=0, vy=v_venus) # Venus
-# sim.add(m=mass_mercury, x = r_mercury, y=0, vy=v_mercury)
-# sim.add(m=mass_saturn, x=r_saturn, y=0, vy=v_saturn)
+sim.add(m=mass_venus, x = r_venus, y=0, vy=v_venus) # Venus
+sim.add(m=mass_mercury, x = r_mercury, y=0, vy=v_mercury)
+sim.add(m=mass_saturn, x=r_saturn, y=0, vy=v_saturn)
 
 # --- Time setup ---
-YEARS = 200
+YEARS = 4
 # t_max = YEARS * 365.25 * 24 * 60 * 60
 t_max = YEARS
 # n_steps = int(t_max // 3600)
@@ -205,8 +205,8 @@ plots = OrbitalPlots(
     times_years=times_years,
     ratio_vals=ratio_vals,
     corr_vals=corr_vals,
-    xlim=lim,
-    ylim=lim,
+    # xlim=lim,
+    # ylim=lim,
     mov_avg_len=19,
     prominence_val=0.0001         # use for more eccentric mars
     # prominence_val=0.05             # use for near-circular mars
