@@ -77,6 +77,16 @@ for i in range(n_steps):
 # Perturbation acceleration
 accel_mars = accel_earth_approx - accel_sun
 
+earth_angle = np.zeros(n_steps)
+for i in range(n_steps):
+    earth_vec = positions_1[i] - positions_0[i]
+    sidereal_vec = [1, 0]
+    if np.linalg.norm(earth_vec) == 0:
+        earth_angle[i] = np.nan
+    else:
+        earth_vec_norm = earth_vec / np.linalg.norm(earth_vec)
+        earth_angle[i] = np.dot(earth_vec, sidereal_vec)
+
 # === Compute Correlation and Ratio ===
 corr_vals = np.zeros(n_steps)
 ratio_vals = np.zeros(n_steps)
@@ -137,10 +147,11 @@ plt.subplots_adjust(bottom=0.25, hspace=0.35)
 idx = 0 # Animation starts on this frame
 
 ax_delta.set_xlim(times[0], times[-1])
-ax_delta.plot(times, np.zeros(len(times)), "--", color="black")
-ax_delta.plot(times, dt_ratio)
-ax_delta.plot(times, dt2_ratio, color = "purple")
-ax_delta.scatter(crossings, np.zeros_like(crossings), color = "red")
+# ax_delta.plot(times, np.zeros(len(times)), "--", color="black")
+# ax_delta.plot(times, dt_ratio)
+# ax_delta.plot(times, dt2_ratio, color = "purple")
+# ax_delta.scatter(crossings, np.zeros_like(crossings), color = "red")
+ax_delta.plot(times, earth_angle)
 
 
 # 1️⃣ Orbit Plot
