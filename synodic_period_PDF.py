@@ -19,7 +19,7 @@ G = sim.G
 
 # Contrived Sun–Earth–Mars system
 central_mass = 300000.0
-r1, r2 = 1.0, 2
+r1, r2 = 1.0, 1.524
 m1 = 1.0
 m2 = 0.107 * 1000
 v1 = np.sqrt(G * central_mass / r1)
@@ -31,7 +31,7 @@ sim.add(m=m1, x=r1, y=0, vy=v1)  # Earth
 sim.add(m=m2, x=r2, y=0, vy=v2)  # Mars
 t_max = 2e5
 num_steps = 1e4
-num_bins = 50
+num_bins = 10
 
 # === elliptical inside
 # sim.add(m=central_mass)   # Sun
@@ -119,25 +119,45 @@ for i in range(n_steps):
 earth_peaks, _ = find_peaks(earth_angle)
 new_year = times[earth_peaks]
 earth_periods = np.array([b - a for a, b in zip(new_year[:-1], new_year[1:])])
+earth_year = np.average(earth_periods)
+earth_periods /= earth_year  # normalize earth periods to 1 "earth year"
 
-# Peak Detection
-ratio_peaks, _ = find_peaks(ratio_vals,height=1)
+# print(f"first year: {times[70]}")
+# print(f"New Years: {new_year}")
+# print(f"Earth Periods {earth_periods}")
+
+# Ratio Peak Detection
+ratio_peaks, _ = find_peaks(ratio_vals, height=1.0008)
 peak_time = times[ratio_peaks]
+peak_height = ratio_vals[ratio_peaks]
 
 # Synodic Period Histogram 
 synodic_periods = np.array([b - a for a, b in zip(peak_time[:-1], peak_time[1:])])
-syn_per_counts, bin_edges = np.histogram(synodic_periods, bins=num_bins)
+synodic_periods /= earth_year  # synodic periods related to earth years
+syn_per_counts, syn_per_bin_edges = np.histogram(synodic_periods, bins=num_bins)
+
+# print(f"Synodic Periods: {synodic_periods}")
+# print("Synodic periods:")
+# for p in synodic_periods:
+#     print(p)
+# print(f"Ratio Vals: {ratio_vals}")
+# print(f"Earth Periods: {earth_periods}")
+# print(f"length of earth periods {len(synodic_periods)}")
 
 # Mars Period 
-mars_periods = (earth_periods*synodic_periods) / (synodic_periods - earth_periods)
-m_per_counts, bin_edges = np.histogram(mars_periods, bins=num_bins)
+# mars_periods = (earth_periods*synodic_periods) / (synodic_periods - earth_periods)
+mars_periods = (earth_periods[:len(synodic_periods)]*synodic_periods) / (synodic_periods - earth_periods[:len(synodic_periods)]) # terrible hack fix
+m_per_counts, m_per_bin_edges = np.histogram(mars_periods, bins=num_bins)
 
 # Mars Radius / Angular Velocity 
 mars_radii = np.cbrt((mars_periods**2 * G * central_mass) / (2*np.pi**2))
-m_rad_counts, bin_edges = np.histogram(mars_radii, bins=num_bins)
+mars_radii *= 100 # hack fix to get right units
+m_rad_counts, m_rad_bin_edges = np.histogram(mars_radii, bins=num_bins)
+print(f"Mars Radii: {mars_radii}")
+# print(f"1.524 / Mars Radii: {1.524 / mars_radii}")
 
 mars_angular_velocities = 2*np.pi / mars_periods
-m_ang_vel_counts, bin_edges = np.histogram(mars_angular_velocities, bins=num_bins)
+m_ang_vel_counts, m_ang_vel_bin_edges = np.histogram(mars_angular_velocities, bins=num_bins)
 
 # === Plot Setup ===
 fig, ((ax_orbit, ax_synodic), (ax_mars, ax_radius)) = plt.subplots(2, 2, figsize=(12, 6))
@@ -165,19 +185,22 @@ ax_orbit.legend(loc="upper right")
 
 
 # Synodic Period Histogram Plot 
-ax_synodic.bar(bin_edges[:-1], syn_per_counts, width=np.diff(bin_edges), align='edge', edgecolor='black')
+ax_synodic.bar(syn_per_bin_edges[:-1], syn_per_counts, width=np.diff(syn_per_bin_edges), align='edge', edgecolor='black')
 ax_synodic.set_title("PDF of Synodic Period")
 ax_synodic.set_ylabel("Number of Occurances")
 ax_synodic.set_xlabel("Years")
 
 # Mars Period Histogram Plot 
-ax_mars.bar(bin_edges[:-1], m_per_counts, width=np.diff(bin_edges), align='edge', edgecolor='black')
+ax_mars.bar(m_per_bin_edges[:-1], m_per_counts, width=np.diff(m_per_bin_edges), align='edge', edgecolor='black')
 ax_mars.set_title("PDF of Mars Period")
 ax_mars.set_ylabel("Number of Occurances")
 ax_mars.set_xlabel("Years")
 
+# ax_mars.plot(times, ratio_vals, color="green")
+# ax_mars.scatter(peak_time, peak_height)
+
 # Mars Radius Histogram Plot 
-ax_radius.bar(bin_edges[:-1], m_rad_counts, width=np.diff(bin_edges), align='edge', edgecolor='black')
+ax_radius.bar(m_rad_bin_edges[:-1], m_rad_counts, width=np.diff(m_rad_bin_edges), align='edge', edgecolor='black')
 ax_radius.set_title("PDF of Mars Radius")
 ax_radius.set_ylabel("Number of Occurances")
 ax_radius.set_xlabel("AU")
